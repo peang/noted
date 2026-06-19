@@ -39,7 +39,7 @@
   --color-theme-darker: #8E8E93;
   --color-theme-active: #E5E5EA;
   --color-theme-white: #1C1C1F;
-  --color-theme-code-bg: #EBEBEF;
+  --color-theme-code-bg: #2C2C2E;
   --color-theme-border-hover: #AEAEB2;
 }
 
@@ -99,10 +99,18 @@
   color: var(--color-theme-text);
 }
 
-/* Code block overrides – keep dark appearance in both themes */
+/* Ensure text selection works in the editor */
+.bn-editor,
+.bn-inline-content {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Code block overrides – smooth dark background in both themes */
 .bn-block-content[data-content-type=codeBlock] {
-  color: rgba(255, 255, 255, 0.9);
-  background-color: #161616;
+  color: rgba(255, 255, 255, 0.85);
+  background-color: var(--color-theme-code-bg);
+  border: 1px solid var(--color-theme-border);
 }
 
 .bn-block-content[data-content-type=codeBlock] .bn-inline-content {

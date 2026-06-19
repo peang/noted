@@ -291,7 +291,7 @@ export default function Sidebar() {
   };
 
   return (
-    <div className="w-64 bg-theme-sidebar-bg border-r border-theme-border flex flex-col h-full shrink-0 select-none select-text">
+    <div className="w-64 bg-theme-sidebar-bg border-r border-theme-border flex flex-col h-full shrink-0 select-text">
       {/* Brand space */}
       <div className="h-12 border-b border-theme-border px-4 flex items-center justify-between bg-theme-sidebar-header">
         <div className="flex items-center gap-2.5">
