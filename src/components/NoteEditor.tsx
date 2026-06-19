@@ -255,7 +255,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
           <p className="font-mono text-xs text-theme-darker">Parsing blocks...</p>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto px-12 py-10 max-w-2xl mx-auto w-full beauty-scrollbar">
+        <div className="flex-1 overflow-y-auto px-12 py-10 mx-auto w-full beauty-scrollbar">
           <div className="blocknote-theme rounded-lg py-2">
             <BlockNoteView
               editor={editor}
