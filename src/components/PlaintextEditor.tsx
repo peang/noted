@@ -188,7 +188,7 @@ export default function PlaintextEditor({ filePath }: PlaintextEditorProps) {
           onChange={(e) => handleChange(e.target.value)}
           spellCheck="false"
           placeholder="Start typing some plaintext here..."
-          className="flex-1 h-full py-4 px-4 resize-none bg-theme-bg text-theme-text text-[12px] leading-6 font-mono outline-none border-none select-text focus:ring-0 selection:bg-theme-active"
+          className="flex-1 h-full py-4 px-4 resize-none bg-theme-bg text-theme-text text-[12px] leading-6 font-mono outline-none border-none select-text focus:ring-0"
           style={{ whiteSpace: 'pre', overflowWrap: 'unset' }}
         />
       </div>

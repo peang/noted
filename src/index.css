@@ -137,7 +137,7 @@
 
 /* Custom styles for block selection / highlighting */
 ::selection {
-  background-color: rgba(255, 255, 255, 0.12); /* Sleek silver highlight */
+  background-color: rgba(0, 122, 255, 0.3);
   color: inherit;
 }
 
