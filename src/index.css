@@ -1,0 +1,164 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;750&family=Inter:wght@300;400;500;650;700&family=JetBrains+Mono:wght@400;550&display=swap');
+@import "tailwindcss";
+
+:root {
+  --theme-bg: #0A0A0A;
+  --theme-sidebar-bg: #0D0D0D;
+  --theme-sidebar-header: #0D0D0D;
+  --theme-card: #0D0D0D;
+  --theme-input: #0A0A0A;
+  --theme-hover: #1A1A1A;
+  --theme-hover-lgt: #1A1A1A;
+  --theme-border: #262626;
+  --theme-border-lgt: #202020;
+  --theme-text: #E5E5E5;
+  --theme-muted: #A3A3A3;
+  --theme-darker: #525252;
+  --theme-active: #1A1A1A;
+  --theme-white: #FFFFFF;
+  --theme-code-bg: #1A1A1A;
+  --theme-border-hover: #525252;
+}
+
+[data-theme="light"] {
+  --theme-bg: #F4F4F6;
+  --theme-sidebar-bg: #FFFFFF;
+  --theme-sidebar-header: #F4F4F6;
+  --theme-card: #FFFFFF;
+  --theme-input: #FFFFFF;
+  --theme-hover: #EBEBEF;
+  --theme-hover-lgt: #F4F4F6;
+  --theme-border: #D1D1D6;
+  --theme-border-lgt: #E5E5EA;
+  --theme-text: #1C1C1F;
+  --theme-muted: #636366;
+  --theme-darker: #8E8E93;
+  --theme-active: #E5E5EA;
+  --theme-white: #1C1C1F;
+  --theme-code-bg: #EBEBEF;
+  --theme-border-hover: #AEAEB2;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-theme-bg: var(--theme-bg);
+  --color-theme-sidebar-bg: var(--theme-sidebar-bg);
+  --color-theme-sidebar-header: var(--theme-sidebar-header);
+  --color-theme-card: var(--theme-card);
+  --color-theme-input: var(--theme-input);
+  --color-theme-hover: var(--theme-hover);
+  --color-theme-hover-lgt: var(--theme-hover-lgt);
+  --color-theme-border: var(--theme-border);
+  --color-theme-border-lgt: var(--theme-border-lgt);
+  --color-theme-text: var(--theme-text);
+  --color-theme-muted: var(--theme-muted);
+  --color-theme-darker: var(--theme-darker);
+  --color-theme-active: var(--theme-active);
+  --color-theme-white: var(--theme-white);
+  --color-theme-code-bg: var(--theme-code-bg);
+  --color-theme-border-hover: var(--theme-border-hover);
+}
+
+/* Custom Scrollbar Styles for elegant dark and light feel */
+.thin-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: var(--theme-sidebar-bg);
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--theme-border);
+  border-radius: 4px;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-border-hover);
+}
+
+.beauty-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.beauty-scrollbar::-webkit-scrollbar-track {
+  background: var(--theme-bg);
+}
+.beauty-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--theme-border);
+  border-radius: 6px;
+}
+.beauty-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-border-hover);
+}
+
+/* BlockNote Overrides to match NoteOS aesthetic, fully supporting both light and dark themes */
+.bn-container {
+  background-color: transparent !important;
+  --bn-colors-menu-background: var(--theme-card) !important;
+  --bn-colors-menu-text: var(--theme-text) !important;
+  --bn-colors-hovered-background: var(--theme-hover) !important;
+  --bn-colors-editor-text: var(--theme-text) !important;
+  --bn-border: 1px solid var(--theme-border) !important;
+  --bn-border-radius-medium: 6px !important;
+  --bn-colors-tooltip-text: var(--theme-muted) !important;
+  --bn-colors-tooltip-background: var(--theme-active) !important;
+}
+
+.bn-editor {
+  background-color: transparent !important;
+  color: var(--theme-text) !important;
+  font-family: "Inter", sans-serif !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.bn-inline-content {
+  color: var(--theme-text) !important;
+}
+
+/* Custom styles for suggestion menus (slash commands & emoji list) */
+.bn-suggestion-menu {
+  background-color: var(--theme-card) !important;
+  border: 1px solid var(--theme-border) !important;
+  color: var(--theme-text) !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4) !important;
+}
+
+.bn-suggestion-menu-item[aria-selected="true"],
+.bn-suggestion-menu-item:hover,
+.bn-suggestion-menu-item[data-selected="true"] {
+  background-color: var(--theme-hover) !important;
+}
+
+.bn-suggestion-menu-label {
+  color: var(--theme-muted) !important;
+}
+
+/* Custom styles for block selection / highlighting */
+::selection {
+  background-color: rgba(255, 255, 255, 0.12); /* Sleek silver highlight */
+  color: inherit;
+}
+
+/* Accent utilities */
+.bg-indigo-650 {
+  background-color: #4f46e5;
+}
+
+.bg-indigo-650:hover {
+  background-color: #4338ca;
+}
+
+.border-indigo-905 {
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+.bg-neutral-850 {
+  background-color: #1e1e1e;
+}
+
+.bg-neutral-905 {
+  background-color: #0d0d0d;
+}
