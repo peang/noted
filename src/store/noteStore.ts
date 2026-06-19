@@ -1,5 +1,51 @@
 import { create } from 'zustand';
 
+const DB_NAME = 'noted_fs_handles';
+const DB_VERSION = 1;
+const STORE_NAME = 'handles';
+const ROOT_HANDLE_KEY = 'rootFolder';
+
+function openHandleDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(STORE_NAME);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveRootHandle(handle: FileSystemDirectoryHandle): Promise<void> {
+  const db = await openHandleDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  tx.objectStore(STORE_NAME).put(handle, ROOT_HANDLE_KEY);
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadRootHandle(): Promise<FileSystemDirectoryHandle | null> {
+  const db = await openHandleDB();
+  const tx = db.transaction(STORE_NAME, 'readonly');
+  const req = tx.objectStore(STORE_NAME).get(ROOT_HANDLE_KEY);
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function deleteRootHandle(): Promise<void> {
+  const db = await openHandleDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  tx.objectStore(STORE_NAME).delete(ROOT_HANDLE_KEY);
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export interface FileNode {
   name: string;
   path: string;
@@ -37,6 +83,7 @@ interface NoteState {
   activeFileObject: File | null;
   simulatedFiles: SimulatedFile[];
   isSaving: boolean;
+  isRestoring: boolean;
   searchQuery: string;
   collapsedFolders: Record<string, boolean>; // path -> collapsed state
   showSandboxModal: boolean;
@@ -59,6 +106,7 @@ interface NoteState {
   closeTab: (path: string) => void;
   setActiveTab: (path: string) => void;
   resetToSimulated: () => void;
+  restoreRootHandle: () => Promise<void>;
   setTheme: (theme: 'light' | 'dark') => void;
 }
 
@@ -67,9 +115,9 @@ const INITIAL_SIMULATED_FILES: SimulatedFile[] = [
   {
     path: "Welcome.md",
     kind: "file",
-    content: `# Welcome to NoteOS 🚀
+    content: `# Welcome to Noted 🚀
 
-NoteOS is a local-first, privacy-respecting notepad that runs entirely inside your browser. No account, no servers, no trackers.
+Noted is a local-first, privacy-respecting notepad that runs entirely inside your browser. No account, no servers, no trackers.
 
 ### 🔑 Core Features:
 - **Notion-Style Block Editor**: Click anywhere to start writing. Try typing \`/\` on a new line to select block types.
@@ -89,7 +137,7 @@ NoteOS is a local-first, privacy-respecting notepad that runs entirely inside yo
     kind: "file",
     content: `# Writing Guide ✍️
 
-Welcome to the NoteOS editor. This block-based editor makes structured outline generation exceptionally easy:
+Welcome to the Noted editor. This block-based editor makes structured outline generation exceptionally easy:
 
 ### 💡 Block Actions:
 - **Slash Commands**: Press \`/\` on a blank line to insert:
@@ -135,7 +183,7 @@ Type \` \` \` \` (three backticks) to open a syntax-highlighted code container!
     kind: "file",
     content: `# Project Brainstorming 🔮
 
-Collaborative workspace templates to customize for NoteOS:
+Collaborative workspace templates to customize for Noted:
 
 - [x] Integrate File System Access API
 - [ ] Implement global outline sidebar views
@@ -155,7 +203,7 @@ Collaborative workspace templates to customize for NoteOS:
     content: `# Meeting Notes Template 📅
 
 **Date**: June 18, 2026
-**Participants**: NoteOS Creator, AI Architect
+**Participants**: Noted Creator, AI Architect
 
 ### 📋 Agenda:
 1. Review full-stack capabilities
@@ -174,17 +222,17 @@ Collaborative workspace templates to customize for NoteOS:
   {
     path: "Workspace Ideas/Configuration.json",
     kind: "file",
-    content: `{\n  "noteosVersion": "1.2.0",\n  "offlineMode": true,\n  "editorSettings": {\n    "lineWrapping": true,\n    "tabSize": 2,\n    "theme": "terminal-slate"\n  },\n  "workspacePaths": [\n    "Welcome.md",\n    "Workspace Ideas",\n    "Writing Guide"\n  ]\n}`
+    content: `{\n  "notedVersion": "1.2.0",\n  "offlineMode": true,\n  "editorSettings": {\n    "lineWrapping": true,\n    "tabSize": 2,\n    "theme": "terminal-slate"\n  },\n  "workspacePaths": [\n    "Welcome.md",\n    "Workspace Ideas",\n    "Writing Guide"\n  ]\n}`
   },
   {
     path: "Workspace Ideas/Status Report.txt",
     kind: "file",
-    content: `Document: NoteOS Status Report\n=============================\nCreated at: 6/19/2026\nStatus: Active\n\nNotes & Logs:\n- The plain text editor loads instantly.\n- Added full search filtering for custom txt files.\n- Lines numbering is aligned to the left of the textbox container.\n- Debounced auto-saving triggers within 800ms of any typing action.`
+    content: `Document: Noted Status Report\n=============================\nCreated at: 6/19/2026\nStatus: Active\n\nNotes & Logs:\n- The plain text editor loads instantly.\n- Added full search filtering for custom txt files.\n- Lines numbering is aligned to the left of the textbox container.\n- Debounced auto-saving triggers within 800ms of any typing action.`
   },
   {
-    path: "Workspace Ideas/NoteOS Project Briefing.pdf",
+    path: "Workspace Ideas/Noted Project Briefing.pdf",
     kind: "file",
-    content: `simulated-pdf-placeholder\nTitle: NoteOS Project Briefing.pdf\nDescription: This is a placeholder for NoteOS Project Briefing.pdf. You can upload a real PDF file to view it directly in the reader!`
+    content: `simulated-pdf-placeholder\nTitle: Noted Project Briefing.pdf\nDescription: This is a placeholder for Noted Project Briefing.pdf. You can upload a real PDF file to view it directly in the reader!`
   },
   {
     path: "Workspace Ideas/User License Agreement.docx",
@@ -195,7 +243,7 @@ Collaborative workspace templates to customize for NoteOS:
 
 // Helper to load simulated files from localStorage or initial state
 const getInitialSimulatedFiles = (): SimulatedFile[] => {
-  const saved = localStorage.getItem('noteos_simulated_files');
+  const saved = localStorage.getItem('noted_simulated_files');
   if (saved) {
     try {
       return JSON.parse(saved);
@@ -207,7 +255,7 @@ const getInitialSimulatedFiles = (): SimulatedFile[] => {
 };
 
 const getInitialOpenTabs = (): string[] => {
-  const saved = localStorage.getItem('noteos_open_tabs');
+  const saved = localStorage.getItem('noted_open_tabs');
   if (saved) {
     try {
       return JSON.parse(saved);
@@ -219,11 +267,11 @@ const getInitialOpenTabs = (): string[] => {
 };
 
 const getInitialActiveTab = (): string | null => {
-  return localStorage.getItem('noteos_active_tab') || null;
+  return localStorage.getItem('noted_active_tab') || null;
 };
 
 const getInitialCollapsedFolders = (): Record<string, boolean> => {
-  const saved = localStorage.getItem('noteos_collapsed_folders');
+  const saved = localStorage.getItem('noted_collapsed_folders');
   if (saved) {
     try {
       return JSON.parse(saved);
@@ -235,7 +283,7 @@ const getInitialCollapsedFolders = (): Record<string, boolean> => {
 };
 
 const getInitialTheme = (): 'light' | 'dark' => {
-  const saved = localStorage.getItem('noteos_theme');
+  const saved = localStorage.getItem('noted_theme');
   return (saved === 'light' || saved === 'dark') ? saved : 'dark';
 };
 
@@ -394,6 +442,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   activeFileObject: null,
   simulatedFiles: getInitialSimulatedFiles(),
   isSaving: false,
+  isRestoring: false,
   searchQuery: "",
   collapsedFolders: getInitialCollapsedFolders(),
   showSandboxModal: false,
@@ -448,6 +497,8 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         mode: 'readwrite'
       });
 
+      await saveRootHandle(handle);
+
       set({
         rootHandle: handle,
         folderName: handle.name,
@@ -493,7 +544,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       initialContent = `# ${displayTitle}\n\n`;
     } else if (type === 'text') {
       if (cleanName.endsWith('.json')) {
-        initialContent = `{\n  "title": "${cleanName}",\n  "description": "JSON plain-text document created in NoteOS",\n  "version": "1.0.0"\n}`;
+        initialContent = `{\n  "title": "${cleanName}",\n  "description": "JSON plain-text document created in Noted",\n  "version": "1.0.0"\n}`;
       } else {
         const displayTitle = cleanName.replace(/\.[a-zA-Z0-9]+$/, '');
         initialContent = `Document: ${displayTitle}\n${"=".repeat(displayTitle.length + 10)}\nCreated at: ${new Date().toLocaleDateString()}\nStatus: Draft\n\n- Write text content here...\n`;
@@ -512,7 +563,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         throw new Error("A file with this name already exists.");
       }
       const newFiles = [...simulatedFiles, { path: targetPath, kind: 'file' as const, content: initialContent }];
-      localStorage.setItem('noteos_simulated_files', JSON.stringify(newFiles));
+      localStorage.setItem('noted_simulated_files', JSON.stringify(newFiles));
       set({ simulatedFiles: newFiles, fileTree: buildTreeFromPaths(newFiles, collapsedFolders, searchQuery) });
       // Open the new file
       await get().openFile(targetPath);
@@ -555,7 +606,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         throw new Error("A folder with this name already exists.");
       }
       const newFiles = [...simulatedFiles, { path: targetPath, kind: 'directory' as const }];
-      localStorage.setItem('noteos_simulated_files', JSON.stringify(newFiles));
+      localStorage.setItem('noted_simulated_files', JSON.stringify(newFiles));
       set({ simulatedFiles: newFiles, fileTree: buildTreeFromPaths(newFiles, collapsedFolders, searchQuery) });
     } else if (rootHandle) {
       try {
@@ -608,7 +659,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         return f;
       });
 
-      localStorage.setItem('noteos_simulated_files', JSON.stringify(newFiles));
+      localStorage.setItem('noted_simulated_files', JSON.stringify(newFiles));
 
       // Update tabs
       const newOpenTabs = openTabs.map(t => {
@@ -709,7 +760,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
     if (isSimulated) {
       // Delete matching and nested files
       const newFiles = simulatedFiles.filter(f => f.path !== path && !f.path.startsWith(path + '/'));
-      localStorage.setItem('noteos_simulated_files', JSON.stringify(newFiles));
+      localStorage.setItem('noted_simulated_files', JSON.stringify(newFiles));
 
       // Close open tabs
       const newOpenTabs = openTabs.filter(t => t !== path && !t.startsWith(path + '/'));
@@ -831,7 +882,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         }
         return f;
       });
-      localStorage.setItem('noteos_simulated_files', JSON.stringify(newFiles));
+      localStorage.setItem('noted_simulated_files', JSON.stringify(newFiles));
       set({
         simulatedFiles: newFiles,
         fileTree: buildTreeFromPaths(newFiles, collapsedFolders, searchQuery),
@@ -870,7 +921,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       }
       return f;
     });
-    localStorage.setItem('noteos_simulated_files', JSON.stringify(newFiles));
+    localStorage.setItem('noted_simulated_files', JSON.stringify(newFiles));
     set({
       simulatedFiles: newFiles,
       fileTree: buildTreeFromPaths(newFiles, collapsedFolders, searchQuery),
@@ -901,6 +952,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
 
   resetToSimulated: () => {
+    deleteRootHandle().catch(console.error);
     const simulated = getInitialSimulatedFiles();
     set({
       isSimulated: true,
@@ -913,22 +965,70 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       simulatedFiles: simulated,
       fileTree: buildTreeFromPaths(simulated, {}, "")
     });
+  },
+
+  restoreRootHandle: async () => {
+    set({ isRestoring: true });
+    try {
+      const handle = await loadRootHandle();
+      if (!handle) {
+        set({ isRestoring: false });
+        return;
+      }
+
+      const opts: any = { mode: 'readwrite' };
+      let permission: PermissionState = 'prompt';
+      try {
+        const queried = await (handle as any).queryPermission(opts);
+        if (queried === 'granted' || queried === 'denied') permission = queried;
+      } catch {
+        // queryPermission not supported, fall through to requestPermission
+      }
+      if (permission === 'prompt') {
+        try {
+          permission = await (handle as any).requestPermission(opts);
+        } catch {
+          permission = 'denied';
+        }
+      }
+      if (permission !== 'granted') {
+        await deleteRootHandle();
+        set({ isRestoring: false });
+        return;
+      }
+
+      set({
+        rootHandle: handle,
+        folderName: handle.name,
+        isSimulated: false,
+      });
+
+      const { collapsedFolders, searchQuery } = get();
+      const tree = await getFilesRecursively(handle, "", collapsedFolders);
+      set({ fileTree: filterRealFileTree(tree, searchQuery), isRestoring: false });
+    } catch {
+      await deleteRootHandle().catch(() => {});
+      set({ isRestoring: false });
+    }
   }
 }));
 
 // Subscribe to automatically persist states when mutated
 useNoteStore.subscribe((state) => {
-  localStorage.setItem('noteos_open_tabs', JSON.stringify(state.openTabs));
-  localStorage.setItem('noteos_active_tab', state.activeTab || '');
-  localStorage.setItem('noteos_collapsed_folders', JSON.stringify(state.collapsedFolders));
-  localStorage.setItem('noteos_theme', state.theme);
+  localStorage.setItem('noted_open_tabs', JSON.stringify(state.openTabs));
+  localStorage.setItem('noted_active_tab', state.activeTab || '');
+  localStorage.setItem('noted_collapsed_folders', JSON.stringify(state.collapsedFolders));
+  localStorage.setItem('noted_theme', state.theme);
 });
 
 // Initialize the store immediately with the initial tree
+// Try to restore a previously opened folder handle from IndexedDB
 const currentStore = useNoteStore.getState();
-currentStore.setSearchQuery("");
+currentStore.restoreRootHandle().then(() => {
+  currentStore.setSearchQuery("");
 
-// If there was an active tab restored, load its file content immediately
-if (currentStore.activeTab) {
-  currentStore.openFile(currentStore.activeTab);
-}
+  // If there was an active tab restored, load its file content immediately
+  if (currentStore.activeTab) {
+    currentStore.openFile(currentStore.activeTab);
+  }
+});

@@ -143,7 +143,7 @@ export default function App() {
                 </h1>
                 
                 <p className="text-sm font-sans text-theme-muted max-w-lg mx-auto leading-relaxed">
-                  NoteOS runs entirely inside your browser's clientside sandboxing. There are no clouds, no tracking, and no logins.
+                  Noted runs entirely inside your browser's clientside sandboxing. There are no clouds, no tracking, and no logins.
                 </p>
               </div>
 
@@ -461,7 +461,7 @@ export default function App() {
 
             {/* Explainer paragraph */}
             <p className="text-xs text-theme-muted leading-relaxed font-sans">
-              To guarantee your privacy, Chrome and Edge only allow local disk folder mounts in direct, top-level browser tabs. Because NoteOS is currently loaded through AI Studio's sandboxed preview frame, the browser shuts down direct filesystem pickers to protect your computer.
+              To guarantee your privacy, Chrome and Edge only allow local disk folder mounts in direct, top-level browser tabs. Because Noted is currently loaded through AI Studio's sandboxed preview frame, the browser shuts down direct filesystem pickers to protect your computer.
             </p>
 
             {/* Interactive options list */}
@@ -478,7 +478,7 @@ export default function App() {
                       💡 Option A: Go Native in a Full Tab (Recommended)
                     </span>
                     <span className="block text-[11px] text-theme-muted leading-normal font-sans">
-                      Open NoteOS directly in its own tab to gain perfect read/write permissions for your folders.
+                      Open Noted directly in its own tab to gain perfect read/write permissions for your folders.
                     </span>
                   </div>
                 </div>

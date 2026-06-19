@@ -249,11 +249,11 @@ export default function DocumentViewer({ filePath }: DocumentViewerProps) {
 
   // Simulated content lists
   function getMockPdfContent() {
-    return `--- PDF DOCUMENT STRUCTURE ---\nFile: ${fileName}\nFormat: PDF/A\nPages: 3\n\nNoteOS Corporate System Specs & Standard Agreement.\nLicensed for: Sandbox Guest.\n\n[PAGE 1]\nSecurity: Local Sandboxed Storage. No external servers are called.\nFeatures: Auto-saving triggers, customizable sidebar configurations.\n\n[PAGE 2]\nPDF Documents render read-only inside NoteOS. Perfect for quick reviews, references, or checklists.\n\n[PAGE 3]\nThis notes workspace remains 100% private. All assets are securely kept in local storage and client-side database schemas.`;
+    return `--- PDF DOCUMENT STRUCTURE ---\nFile: ${fileName}\nFormat: PDF/A\nPages: 3\n\nNoted Corporate System Specs & Standard Agreement.\nLicensed for: Sandbox Guest.\n\n[PAGE 1]\nSecurity: Local Sandboxed Storage. No external servers are called.\nFeatures: Auto-saving triggers, customizable sidebar configurations.\n\n[PAGE 2]\nPDF Documents render read-only inside Noted. Perfect for quick reviews, references, or checklists.\n\n[PAGE 3]\nThis notes workspace remains 100% private. All assets are securely kept in local storage and client-side database schemas.`;
   }
 
   function getMockWordContent() {
-    return `--- WORD DOCUMENT FORMAT ---\nFile: ${fileName}\nFormat: Microsoft Word Open XML (.docx)\nPages: 2\n\nExecutive Project Status Report & Briefing doc\n\n[PAGE 1]\nProject: NoteOS Launch Spec\nStatus: Active (Local Sandbox Mode)\nDetails: Working client-side text engine initialized. FileTree systems loaded.\n\n[PAGE 2]\nMeeting Notes & Transcripts:\n- Resolved sidebar toggle on main grid container.\n- Added full read-only preview support for Microsoft Word docs and Adobe PDFs.`;
+    return `--- WORD DOCUMENT FORMAT ---\nFile: ${fileName}\nFormat: Microsoft Word Open XML (.docx)\nPages: 2\n\nExecutive Project Status Report & Briefing doc\n\n[PAGE 1]\nProject: Noted Launch Spec\nStatus: Active (Local Sandbox Mode)\nDetails: Working client-side text engine initialized. FileTree systems loaded.\n\n[PAGE 2]\nMeeting Notes & Transcripts:\n- Resolved sidebar toggle on main grid container.\n- Added full read-only preview support for Microsoft Word docs and Adobe PDFs.`;
   }
 
   // Calculate total pages for proper pagination
@@ -434,9 +434,9 @@ export default function DocumentViewer({ filePath }: DocumentViewerProps) {
                   <span>Sandbox Safe Active</span>
                 </div>
                 {isRealPdfLoaded ? (
-                  <span>NoteOS parsed text contents page-by-page directly from your physical file. Use the tabs above to toggle between interactive layout & raw PDF frame blocks.</span>
+                  <span>Noted parsed text contents page-by-page directly from your physical file. Use the tabs above to toggle between interactive layout & raw PDF frame blocks.</span>
                 ) : (
-                  <span>NoteOS runs fully client-side. Drag and drop any real PDF or Word docx onto the canvas sheet to test custom live files directly!</span>
+                  <span>Noted runs fully client-side. Drag and drop any real PDF or Word docx onto the canvas sheet to test custom live files directly!</span>
                 )}
               </div>
             </div>
@@ -468,7 +468,7 @@ export default function DocumentViewer({ filePath }: DocumentViewerProps) {
                       {/* Header rule */}
                       <div className="border-b-2 border-blue-800 pb-3 mb-6 flex justify-between items-center text-xs font-sans text-neutral-500 tracking-wide uppercase">
                         <span>OFFICE BRIEF</span>
-                        <span>NoteOS formatted text view</span>
+                        <span>Noted formatted text view</span>
                       </div>
 
                       <div className="mb-8 flex items-start gap-4">
@@ -562,7 +562,7 @@ export default function DocumentViewer({ filePath }: DocumentViewerProps) {
 
                         {/* Alert box */}
                         <div className="border border-red-200 bg-red-50 text-red-900/80 px-4 py-3 rounded text-[11px] leading-relaxed mb-6 font-sans">
-                          <strong>NoteOS Client-Side Rendering Mode:</strong> To work perfectly inside this preview cage, we extracted the document's raw text and metadata strings below. Keep in mind that direct layout styling, tables, and images are read-only. Enjoy checking textual content safely!
+                          <strong>Noted Client-Side Rendering Mode:</strong> To work perfectly inside this preview cage, we extracted the document's raw text and metadata strings below. Keep in mind that direct layout styling, tables, and images are read-only. Enjoy checking textual content safely!
                         </div>
 
                         <div className="space-y-4 pt-2">
@@ -608,15 +608,15 @@ export default function DocumentViewer({ filePath }: DocumentViewerProps) {
                           </div>
 
                           <div className="border border-neutral-200 rounded p-4 bg-neutral-50 text-xs text-neutral-600 font-sans mb-6">
-                            <strong>NoteOS Simulated Document Workspaces:</strong> This view is simulating the document format of file <code>{fileName}</code>. NoteOS supports loading fully qualified real documents. Drag & drop a real file on this page or use the toolbar uploader to see real document content!
+                            <strong>Noted Simulated Document Workspaces:</strong> This view is simulating the document format of file <code>{fileName}</code>. Noted supports loading fully qualified real documents. Drag & drop a real file on this page or use the toolbar uploader to see real document content!
                           </div>
 
                           <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide border-b border-neutral-200 pb-1.5 mb-3 font-sans mt-8">1. Abstract Overview</h3>
                           <p className="font-serif text-[13px] leading-relaxed text-neutral-700 mb-4">
-                            NoteOS is engineered as a privacy-centric notepad targeting the local filesystem directly. Through modern system-level APIs like the W3C File System Access standard, users can map entire directories from their home disk environment into this sandboxed applet safely.
+                            Noted is engineered as a privacy-centric notepad targeting the local filesystem directly. Through modern system-level APIs like the W3C File System Access standard, users can map entire directories from their home disk environment into this sandboxed applet safely.
                           </p>
                           <p className="font-serif text-[13px] leading-relaxed text-neutral-700">
-                            Traditional word processors rely on heavily bloated background binaries and cloud databases that can compromise privacy. NoteOS operates purely in client memory loops, respecting the absolute ceiling of local data ownership.
+                            Traditional word processors rely on heavily bloated background binaries and cloud databases that can compromise privacy. Noted operates purely in client memory loops, respecting the absolute ceiling of local data ownership.
                           </p>
                         </div>
                       )}
@@ -646,12 +646,12 @@ export default function DocumentViewer({ filePath }: DocumentViewerProps) {
                           <span className="text-[10px] font-mono text-neutral-400 block uppercase mb-6">Local sandboxing and data boundaries</span>
 
                           <p className="font-serif text-[13px] leading-relaxed text-neutral-700 mb-4">
-                            The document verifies that NoteOS does not contain telemetry hooks. No external tracking domains are referenced in the runtime structure, rendering this layout completely safe for high-security enterprise drafting, sensitive notes logging, and personal diary keeping.
+                            The document verifies that Noted does not contain telemetry hooks. No external tracking domains are referenced in the runtime structure, rendering this layout completely safe for high-security enterprise drafting, sensitive notes logging, and personal diary keeping.
                           </p>
 
                           <div className="flex gap-2 items-center bg-emerald-50 text-emerald-800 border-l-4 border-emerald-600 p-3 rounded mt-8 text-xs font-sans">
                             <Check className="w-4 h-4 text-emerald-600" />
-                            <span>NoteOS Sandbox environment complies with browser data protection standards.</span>
+                            <span>Noted Sandbox environment complies with browser data protection standards.</span>
                           </div>
                         </div>
                       )}

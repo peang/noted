@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   useCreateBlockNote,
   SuggestionMenuController,
@@ -7,8 +7,11 @@ import {
   getDefaultReactEmojiPickerItems,
 } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
+import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs } from '@blocknote/core';
 import { useNoteStore, getFileType } from '../store/noteStore';
 import { Loader2, Check, Columns } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import CodeLanguagePicker, { getLanguageLabel } from './CodeLanguagePicker';
 import PlaintextEditor from './PlaintextEditor';
 import DocumentViewer from './DocumentViewer';
 import '@blocknote/mantine/style.css';
@@ -29,8 +32,114 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
   const lastSavedRef = useRef<string | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize BlockNote
-  const editor = useCreateBlockNote();
+  // Schema with Shiki syntax highlighting for code blocks
+  const schema = BlockNoteSchema.create({
+    blockSpecs: {
+      ...defaultBlockSpecs,
+      codeBlock: createCodeBlockSpec({
+        defaultLanguage: 'javascript',
+        createHighlighter: () =>
+          import('shiki').then((m: any) => {
+            const hl = m.createHighlighter({
+              themes: ['github-dark'],
+              langs: ['javascript', 'typescript', 'tsx', 'jsx', 'json', 'yaml', 'html', 'css', 'scss', 'python', 'rust', 'go', 'bash', 'shell', 'sql', 'markdown', 'text'],
+            });
+            hl.catch((err: any) => console.error('[Shiki] highlighter creation failed:', err));
+            return hl;
+          }),
+        supportedLanguages: {
+          javascript: { name: 'JavaScript' },
+          typescript: { name: 'TypeScript' },
+          tsx: { name: 'TSX' },
+          jsx: { name: 'JSX' },
+          json: { name: 'JSON' },
+          yaml: { name: 'YAML' },
+          html: { name: 'HTML' },
+          css: { name: 'CSS' },
+          scss: { name: 'SCSS' },
+          python: { name: 'Python' },
+          rust: { name: 'Rust' },
+          go: { name: 'Go' },
+          bash: { name: 'Bash' },
+          shell: { name: 'Shell' },
+          sql: { name: 'SQL' },
+          markdown: { name: 'Markdown' },
+          text: { name: 'Plain Text' },
+        },
+      } as any),
+    },
+  });
+
+  // Init BlockNote
+  const editor = useCreateBlockNote({ schema });
+
+  // Inject searchable language pickers into code blocks
+  const pickerRootsRef = useRef<Map<Element, { root: any; cleanup: () => void }>>(new Map());
+
+  const triggerHighlightRefresh = useCallback(() => {
+    try {
+      (editor as any)._tiptapEditor?.view?.dispatch?.(
+        (editor as any)._tiptapEditor.state.tr.setMeta("prosemirror-highlight-refresh", true)
+      );
+    } catch {}
+  }, [editor]);
+
+  const attachLangPicker = useCallback((container: HTMLElement, blockId: string, language: string) => {
+    const select = container.querySelector<HTMLSelectElement>('.bn-block-content[data-content-type=codeBlock] > div > select');
+    const codeBlock = container.querySelector<HTMLElement>('.bn-block-content[data-content-type=codeBlock]');
+    if (!select || !codeBlock) return;
+
+    // Hide the original select visually
+    select.style.opacity = '0';
+    select.style.pointerEvents = 'none';
+    select.style.position = 'absolute';
+
+    // Don't double-mount
+    if (codeBlock.querySelector('.noted-lang-picker')) return;
+
+    const mount = document.createElement('div');
+    mount.style.cssText = 'position:absolute;top:7px;left:12px;z-index:10;';
+    codeBlock.style.position = codeBlock.style.position || 'relative';
+    codeBlock.appendChild(mount);
+
+    const handleChange = (newLang: string) => {
+      const block = editor.getBlock(blockId);
+      if (block) {
+        editor.updateBlock(blockId, { props: { language: newLang } } as any);
+        select.value = newLang;
+        // Force prosemirror-highlight to re-parse
+        triggerHighlightRefresh();
+      }
+    };
+
+    import('react-dom/client').then(({ createRoot }) => {
+      const root = createRoot(mount);
+      root.render(<CodeLanguagePicker value={language} onChange={handleChange} />);
+      pickerRootsRef.current.set(mount, { root, cleanup: () => root.unmount() });
+    });
+  }, [editor]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const dom = editor.domElement;
+      if (!dom) return;
+      const codeBlocks = dom.querySelectorAll<HTMLElement>('.bn-block-content[data-content-type=codeBlock]');
+      codeBlocks.forEach((cb) => {
+        const blockOuter = cb.closest('[data-id]') as HTMLElement | null;
+        const blockId = blockOuter?.getAttribute('data-id');
+        const select = cb.querySelector<HTMLSelectElement>('div > select');
+        if (select && blockId && !cb.querySelector('.noted-lang-picker')) {
+          attachLangPicker(cb, blockId, select.value);
+        }
+      });
+    }, 500);
+
+    return () => {
+      clearInterval(interval);
+      pickerRootsRef.current.forEach((v) => v.cleanup());
+      pickerRootsRef.current.clear();
+    };
+  }, [editor, attachLangPicker]);
 
   const fileType = getFileType(filePath);
 
@@ -101,8 +210,6 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     return <DocumentViewer filePath={filePath} />;
   }
 
-  const fileName = filePath.split('/').pop()?.replace(/\.md$/, '') || 'Untitled';
-
   return (
     <div className="flex-1 flex flex-col bg-theme-bg h-full overflow-hidden text-theme-text font-sans relative">
       {/* Editor Header Bar */}
@@ -149,18 +256,6 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-12 py-10 max-w-2xl mx-auto w-full beauty-scrollbar">
-          {/* Document Title / Cover space */}
-          <div className="mb-0">
-            <h1 className="text-4xl font-sans font-bold tracking-tight text-theme-white mb-2 leading-tight">
-              {fileName}
-            </h1>
-            <div className="flex items-center gap-2 text-theme-darker text-xs font-mono select-none mb-10">
-              <span>Last edited: just now</span>
-              <span>•</span>
-              <span>Local-first Sync</span>
-            </div>
-          </div>
-          
           <div className="blocknote-theme rounded-lg py-2">
             <BlockNoteView
               editor={editor}

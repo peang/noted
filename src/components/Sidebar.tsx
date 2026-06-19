@@ -298,7 +298,7 @@ export default function Sidebar() {
           <div className="w-6 h-6 bg-theme-white rounded flex items-center justify-center">
             <span className="text-theme-bg font-bold text-xs">N</span>
           </div>
-          <span className="font-sans font-semibold tracking-tight text-sm text-theme-white">NoteOS</span>
+          <span className="font-sans font-semibold tracking-tight text-sm text-theme-white">Noted</span>
         </div>
         <div className="text-[10px] font-mono text-theme-darker font-semibold uppercase">v1.0</div>
       </div>

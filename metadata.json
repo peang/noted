@@ -1,5 +1,5 @@
 {
-  "name": "NoteOS",
+  "name": "Noted",
   "description": "A beautiful local-first block-based note-taking app that works entirely inside your local folder.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

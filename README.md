@@ -1,20 +1,68 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+  <h1>Noted</h1>
+  <p><strong>Local-first, privacy-respecting block note-taking app</strong></p>
+  <p>Runs entirely in your browser. No cloud. No accounts. No trackers.</p>
 </div>
 
-# Run and deploy your AI Studio app
+---
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/99546b53-7d8b-4d6e-8848-ad611e7f3503
+- **Block Editor** — Notion-style editing with slash commands, markdown shortcuts, emoji picker
+- **Local Filesystem Access** — Open & edit real files on disk via the File System Access API
+- **Simulated Sandbox** — Fully functional demo mode when filesystem API is unavailable (e.g., inside iframes)
+- **Multi-format Support** — Markdown (`.md`), plaintext (`.txt`, `.json`), PDF viewer, DOC/DOCX viewer
+- **File Tree Sidebar** — Browse, search, create, rename, delete files and folders
+- **Auto-save** — Debounced saving to disk or localStorage
+- **Light/Dark Theme** — Toggleable dark mode
+- **100% Offline** — No backend server, no user accounts, no telemetry
 
-## Run Locally
+## Quick Start
 
-**Prerequisites:**  Node.js
+```sh
+npm install
+npm run dev
+```
 
+Open `http://localhost:3000`. No API keys or configuration needed.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+> **Note:** Markdown hot-reload may be disabled by default. Set `DISABLE_HMR=false` in your environment to enable it.
+
+## Usage
+
+| Mode | Description |
+|------|-------------|
+| **Simulated Sandbox** | Preloaded demo workspace with sample files in browser localStorage |
+| **Local Folder** | Click "Open Folder" to mount a real directory from your machine |
+
+When running inside an iframe (e.g., AI Studio preview), the File System Access API is blocked by browser security. Use the "Go Native in a Full Tab" option for full filesystem access.
+
+## Tech Stack
+
+| Tool | Purpose |
+|------|---------|
+| React 19 + TypeScript | UI framework |
+| Vite 6 | Bundler |
+| BlockNote | Block-based editor |
+| Zustand | State management |
+| Tailwind CSS v4 | Styling |
+| Lucide React | Icons |
+| File System Access API | Local disk read/write |
+
+## Project Structure
+
+```
+src/
+├── App.tsx                 # Main app shell
+├── components/
+│   ├── Sidebar.tsx         # File tree + navigation
+│   ├── NoteEditor.tsx      # BlockNote editor (markdown)
+│   ├── PlaintextEditor.tsx # Plaintext/code editor
+│   └── DocumentViewer.tsx  # PDF/DOC viewer
+└── store/
+    └── noteStore.ts        # Zustand state + file operations
+```
+
+## License
+
+MIT
