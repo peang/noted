@@ -99,6 +99,19 @@
   color: var(--color-theme-text);
 }
 
+/* Hyperlink styling inside the editor */
+.bn-inline-content a,
+.bn-inline-content a:visited,
+.bn-inline-content a:active {
+  color: var(--color-blue-500);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.bn-inline-content a:hover {
+  color: var(--color-blue-400);
+}
+
 /* Ensure text selection works in the editor */
 .bn-editor,
 .bn-inline-content {
