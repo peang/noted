@@ -236,9 +236,13 @@ export default function Sidebar() {
                 <button
                   title="Delete"
                   onClick={() => {
-                    if (confirm(`Are you sure you want to delete "${node.name}"?`)) {
-                      deleteNode(node.path);
-                    }
+                    toast(`Delete "${node.name}"?`, {
+                      duration: 8000,
+                      action: {
+                        label: 'Delete',
+                        onClick: () => deleteNode(node.path),
+                      },
+                    });
                   }}
                   className="hover:text-red-400 p-0.5 rounded hover:bg-theme-hover"
                 >
