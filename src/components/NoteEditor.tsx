@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   useCreateBlockNote,
   SuggestionMenuController,
@@ -33,7 +33,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Schema with Shiki syntax highlighting for code blocks
-  const schema = BlockNoteSchema.create({
+  const schema = useMemo(() => BlockNoteSchema.create({
     blockSpecs: {
       ...defaultBlockSpecs,
       codeBlock: createCodeBlockSpec({
@@ -42,7 +42,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
           import('shiki').then((m: any) => {
             const hl = m.createHighlighter({
               themes: ['github-dark'],
-              langs: ['javascript', 'typescript', 'tsx', 'jsx', 'json', 'yaml', 'html', 'css', 'scss', 'python', 'rust', 'go', 'bash', 'shell', 'sql', 'markdown', 'text'],
+              langs: ['javascript', 'typescript', 'json', 'bash', 'markdown', 'text'],
             });
             hl.catch((err: any) => console.error('[Shiki] highlighter creation failed:', err));
             return hl;
@@ -68,7 +68,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
         },
       } as any),
     },
-  });
+  }), []);
 
   // Init BlockNote
   const editor = useCreateBlockNote({ schema });

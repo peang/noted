@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNoteStore, FileNode } from '../store/noteStore';
 import { toast } from 'sonner';
 import {
@@ -300,6 +300,11 @@ export default function Sidebar() {
     });
   };
 
+  const treeContent = useMemo(() => {
+    if (fileTree.length === 0) return null;
+    return renderTree(fileTree);
+  }, [fileTree, activeTab, renamingPath, addingChildState, inlineInputVal]);
+
   return (
     <div className="w-64 bg-theme-sidebar-bg border-r border-theme-border flex flex-col h-full shrink-0 select-text">
       {/* Brand space */}
@@ -430,9 +435,7 @@ export default function Sidebar() {
           </div>
         )}
 
-        {fileTree.length > 0 ? (
-          renderTree(fileTree)
-        ) : (
+        {treeContent || (
           <div className="flex flex-col items-center justify-center p-6 text-center select-none text-theme-darker text-xs">
             {searchQuery ? (
               <span>No matching notes found</span>

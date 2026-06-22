@@ -306,13 +306,13 @@ export async function getFilesRecursively(
         : entry.name;
       
       if (entry.kind === "directory") {
-        const isOpen = !collapsedMap[relativePath];
+        const isOpen = collapsedMap[relativePath] === false;
         nodes.push({
           name: entry.name,
           path: relativePath,
           kind: "directory",
           handle: entry,
-          children: await getFilesRecursively(entry, relativePath, collapsedMap),
+          children: isOpen ? await getFilesRecursively(entry, relativePath, collapsedMap) : [],
           isOpen,
         });
       } else {
@@ -464,21 +464,24 @@ export const useNoteStore = create<NoteState>((set, get) => ({
 
   setSearchQuery: (query: string) => {
     set({ searchQuery: query });
-    // Rebuild tree
-    const { isSimulated, rootHandle, simulatedFiles, collapsedFolders } = get();
-    if (isSimulated) {
-      set({ fileTree: buildTreeFromPaths(simulatedFiles, collapsedFolders, query) });
-    } else if (rootHandle) {
-      getFilesRecursively(rootHandle, "", collapsedFolders).then(tree => {
-        set({ fileTree: filterRealFileTree(tree, query) });
-      });
-    }
+    // Debounce tree rebuild
+    if ((window as any).__searchDebounce) clearTimeout((window as any).__searchDebounce);
+    (window as any).__searchDebounce = setTimeout(() => {
+      const { isSimulated, rootHandle, simulatedFiles, collapsedFolders } = get();
+      if (isSimulated) {
+        set({ fileTree: buildTreeFromPaths(simulatedFiles, collapsedFolders, query) });
+      } else if (rootHandle) {
+        getFilesRecursively(rootHandle, "", collapsedFolders).then(tree => {
+          set({ fileTree: filterRealFileTree(tree, query) });
+        });
+      }
+    }, 300);
   },
 
   toggleFolderCollapse: (path: string) => {
     set(state => {
-      const isCollapsed = !!state.collapsedFolders[path];
-      const newCollapsed = { ...state.collapsedFolders, [path]: !isCollapsed };
+      const isOpen = state.collapsedFolders[path] === false;
+      const newCollapsed = { ...state.collapsedFolders, [path]: isOpen ? true : false };
       
       // Update tree view
       setTimeout(() => {
@@ -769,7 +772,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
 
   deleteNode: async (path: string) => {
-    const { isSimulated, rootHandle, simulatedFiles, openTabs, activeTab, collapsedFolders, searchQuery } = get();
+    const { isSimulated, rootHandle, simulatedFiles, openTabs, activeTab, collapsedFolders, searchQuery, fileTree } = get();
 
     if (isSimulated) {
       // Delete matching and nested files
@@ -801,14 +804,18 @@ export const useNoteStore = create<NoteState>((set, get) => ({
           dirHandle = await dirHandle.getDirectoryHandle(s);
         }
 
-        // Delete from local disk
-        const isDir = !path.endsWith('.md');
-        if (isDir) {
+        // Delete from local disk (try directory first, fall back to file)
+        try {
           const targetDirHandle = await dirHandle.getDirectoryHandle(name);
           await (targetDirHandle as any).remove({ recursive: true });
-        } else {
-          const targetFileHandle = await dirHandle.getFileHandle(name);
-          await (targetFileHandle as any).remove();
+        } catch {
+          try {
+            const targetFileHandle = await dirHandle.getFileHandle(name);
+            await (targetFileHandle as any).remove();
+          } catch (fileErr) {
+            console.error("Delete failed: ", fileErr);
+            throw fileErr;
+          }
         }
 
         // Close tabs

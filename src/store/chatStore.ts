@@ -44,20 +44,31 @@ async function readWorkspaceFiles(): Promise<string> {
   const state = useNoteStore.getState();
   const { isSimulated, simulatedFiles, fileTree } = state;
   const entries: string[] = [];
+  let totalBytes = 0;
 
   if (isSimulated) {
     for (const f of simulatedFiles) {
       if (f.kind !== 'file') continue;
-      entries.push(`--- ${f.path} ---\n${f.content || '(empty)'}\n`);
+      if (entries.length >= MAX_AI_FILES) break;
+      const content = f.content || '';
+      totalBytes += content.length;
+      if (totalBytes > MAX_AI_CONTENT_KB * 1024) break;
+      entries.push(`--- ${f.path} ---\n${content}\n`);
     }
-    return entries.join('\n');
+    const summary = entries.length < simulatedFiles.filter(f => f.kind === 'file').length
+      ? `\n(Showing ${entries.length} of ${simulatedFiles.filter(f => f.kind === 'file').length} files)\n`
+      : '';
+    return entries.join('\n') + summary;
   }
 
   const readNode = async (node: FileNode) => {
     if (node.kind === 'file' && node.handle) {
+      if (entries.length >= MAX_AI_FILES) return;
       try {
         const file = await (node.handle as FileSystemFileHandle).getFile();
         const content = await file.text();
+        totalBytes += content.length;
+        if (totalBytes > MAX_AI_CONTENT_KB * 1024) return;
         entries.push(`--- ${node.path} ---\n${content}\n`);
       } catch {
         entries.push(`--- ${node.path} ---\n(unreadable)\n`);
@@ -239,6 +250,8 @@ const WRITE_FILE_TOOL = {
   },
 };
 
+const MAX_AI_FILES = 20;
+const MAX_AI_CONTENT_KB = 5000;
 const MAX_TOOL_ROUNDS = 3;
 const STORAGE_KEY_API_KEY = 'noted_go_api_key';
 const STORAGE_KEY_MESSAGES = 'noted_chat_messages';
