@@ -506,10 +506,10 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         throw new Error("Local folder access is not supported by your browser or inside this sandbox. Running on Simulated Mode!");
       }
       console.log('[picker] step 2 - API exists, calling showDirectoryPicker');
-
-      const handle = await (window as any).showDirectoryPicker({
-        mode: 'readwrite'
-      });
+      const handle = await Promise.race([
+        (window as any).showDirectoryPicker({ mode: 'readwrite' }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Picker timed out — try again. Open the app directly in your browser, not in a preview frame.')), 15000)),
+      ]);
 
       console.log('[picker] step 3 - got handle:', handle?.name, typeof handle);
       if (!handle) throw new Error('Picker returned empty handle');
