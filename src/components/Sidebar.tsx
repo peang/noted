@@ -54,6 +54,7 @@ export default function Sidebar() {
   const [errorToast, setErrorToast] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const openingRef = useRef(false);
 
   // Trigger focus when inline input is loaded
   useEffect(() => {
@@ -69,20 +70,22 @@ export default function Sidebar() {
   };
 
   const handleOpenFolder = async () => {
+    if (openingRef.current) return;
+    openingRef.current = true;
     try {
       setErrorToast(null);
       await openFolderPicker();
     } catch (err: any) {
-      // Gracefully capture cancellation or sandboxing errors
       if (err?.name === 'AbortError') {
-        return; // User cancelled
+        return;
       }
       if (err?.message?.includes("Iframe Sandbox Constraint")) {
-        return; // Let the top-level SandboxHintModal handle this
+        return;
       }
       setErrorToast(err?.message || "File access is limited in some browser environments.");
-      // Automatically clear after 5s
       setTimeout(() => setErrorToast(null), 5000);
+    } finally {
+      openingRef.current = false;
     }
   };
 
