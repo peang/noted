@@ -508,6 +508,11 @@ export const useNoteStore = create<NoteState>((set, get) => ({
 
       await saveRootHandle(handle);
 
+      try {
+        const { useChatStore } = await import('./chatStore');
+        useChatStore.getState().clearChat();
+      } catch {}
+
       set({
         rootHandle: handle,
         folderName: handle.name,
@@ -962,6 +967,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
 
   resetToSimulated: () => {
     deleteRootHandle().catch(console.error);
+    import('./chatStore').then(m => m.useChatStore.getState().clearChat()).catch(() => {});
     const simulated = getInitialSimulatedFiles();
     set({
       isSimulated: true,
@@ -1011,6 +1017,11 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         folderName: handle.name,
         isSimulated: false,
       });
+
+      try {
+        const { useChatStore } = await import('./chatStore');
+        useChatStore.getState().clearChat();
+      } catch {}
 
       const { collapsedFolders, searchQuery } = get();
       const tree = await getFilesRecursively(handle, "", collapsedFolders);
