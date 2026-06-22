@@ -107,6 +107,7 @@ interface NoteState {
   setActiveTab: (path: string) => void;
   resetToSimulated: () => void;
   restoreRootHandle: () => Promise<void>;
+  refreshFolder: () => Promise<void>;
   setTheme: (theme: 'light' | 'dark') => void;
 }
 
@@ -1010,6 +1011,17 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       await deleteRootHandle().catch(() => {});
       set({ isRestoring: false });
     }
+  },
+
+  refreshFolder: async () => {
+    const { isSimulated, rootHandle, collapsedFolders, searchQuery, simulatedFiles } = get();
+    if (isSimulated) {
+      set({ fileTree: buildTreeFromPaths(simulatedFiles, collapsedFolders, searchQuery) });
+      return;
+    }
+    if (!rootHandle) return;
+    const tree = await getFilesRecursively(rootHandle, "", collapsedFolders);
+    set({ fileTree: filterRealFileTree(tree, searchQuery) });
   }
 }));
 

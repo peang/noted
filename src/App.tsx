@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronLeft
 } from 'lucide-react';
+import { Toaster } from 'sonner';
 
 export default function App() {
   const openTabs = useNoteStore((state) => state.openTabs);
@@ -102,6 +103,7 @@ export default function App() {
 
   return (
     <div data-theme={theme} className="flex h-screen w-screen bg-theme-sidebar-bg text-theme-text overflow-hidden font-sans">
+      <Toaster position="top-center" richColors />
       {/* Sidebar Navigation */}
       <Sidebar />
 

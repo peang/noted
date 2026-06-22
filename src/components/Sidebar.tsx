@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNoteStore, FileNode } from '../store/noteStore';
+import { toast } from 'sonner';
 import {
   Folder,
   FolderOpen,
@@ -61,6 +62,11 @@ export default function Sidebar() {
       inputRef.current.select();
     }
   }, [addingChildState, renamingPath]);
+
+  const handleRefresh = async () => {
+    await useNoteStore.getState().refreshFolder();
+    toast.success("Document list refreshed");
+  };
 
   const handleOpenFolder = async () => {
     try {
@@ -363,6 +369,14 @@ export default function Sidebar() {
         <div className="flex items-center justify-between px-1 pt-1.5">
           <span className="text-[11px] uppercase tracking-wider text-theme-darker font-bold">Documents</span>
           <div className="flex items-center gap-2 text-theme-muted">
+            {/* Refresh file tree */}
+            <button
+              onClick={handleRefresh}
+              title="Refresh file tree"
+              className="hover:text-white cursor-pointer p-0.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
             {/* Create file in Workspace root */}
             <button
               onClick={() => {
@@ -430,7 +444,7 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* Error message slot as elegant hover bubble */}
+      {/* Toast messages */}
       {errorToast && (
         <div className="mx-3 my-2 p-2.5 bg-red-950/60 border border-red-900 text-red-300 rounded text-[11px] shadow-lg leading-normal flex items-start gap-1.5">
           <HelpCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
