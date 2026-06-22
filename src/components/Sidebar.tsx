@@ -70,22 +70,32 @@ export default function Sidebar() {
   };
 
   const handleOpenFolder = async () => {
-    if (openingRef.current) return;
+    if (openingRef.current) {
+      console.log('[handleOpenFolder] blocked by lock');
+      return;
+    }
     openingRef.current = true;
+    const lockTimeout = setTimeout(() => { openingRef.current = false; }, 30000);
     try {
       setErrorToast(null);
+      console.log('[handleOpenFolder] calling openFolderPicker');
       await openFolderPicker();
+      console.log('[handleOpenFolder] openFolderPicker succeeded');
     } catch (err: any) {
+      console.log('[handleOpenFolder] caught error:', err?.name, err?.message);
       if (err?.name === 'AbortError') {
         return;
       }
       if (err?.message?.includes("Iframe Sandbox Constraint")) {
         return;
       }
-      setErrorToast(err?.message || "File access is limited in some browser environments.");
+      const msg = err?.message || "File access is limited in some browser environments.";
+      setErrorToast(msg);
       setTimeout(() => setErrorToast(null), 5000);
     } finally {
+      clearTimeout(lockTimeout);
       openingRef.current = false;
+      console.log('[handleOpenFolder] lock released');
     }
   };
 

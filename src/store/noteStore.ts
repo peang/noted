@@ -508,8 +508,10 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       const handle = await (window as any).showDirectoryPicker({
         mode: 'readwrite'
       });
+      console.log('[openFolderPicker] got handle:', handle.name);
 
       await saveRootHandle(handle);
+      console.log('[openFolderPicker] saved handle to IndexedDB');
 
       try {
         const { useChatStore } = await import('./chatStore');
@@ -526,10 +528,16 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       });
 
       const { collapsedFolders, searchQuery } = get();
+      console.log('[openFolderPicker] building tree...');
       const tree = await getFilesRecursively(handle, "", collapsedFolders);
-      set({ fileTree: filterRealFileTree(tree, searchQuery) });
+      console.log('[openFolderPicker] tree built:', tree.length, 'nodes');
+      const filtered = filterRealFileTree(tree, searchQuery);
+      console.log('[openFolderPicker] filtered tree:', filtered.length, 'nodes');
+      set({ fileTree: filtered });
+      console.log('[openFolderPicker] done');
     } catch (err: any) {
       console.warn("Folder picker failed:", err);
+      console.log('[openFolderPicker] error name:', err?.name, 'message:', err?.message);
       
       const errText = String(err?.message || "").toLowerCase();
       const isSandboxException = 
