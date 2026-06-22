@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import NoteEditor from './components/NoteEditor';
 import { useNoteStore, FileNode } from './store/noteStore';
@@ -20,6 +20,7 @@ import {
   ChevronLeft
 } from 'lucide-react';
 import { Toaster } from 'sonner';
+import ChatPanel from './components/ChatPanel';
 
 export default function App() {
   const openTabs = useNoteStore((state) => state.openTabs);
@@ -35,6 +36,10 @@ export default function App() {
   const setShowSandboxModal = useNoteStore((state) => state.setShowSandboxModal);
   const rightSidebarOpen = useNoteStore((state) => state.rightSidebarOpen);
   const setRightSidebarOpen = useNoteStore((state) => state.setRightSidebarOpen);
+  const rightSidebarTab = useNoteStore((state) => state.rightSidebarTab);
+  const setRightSidebarTab = useNoteStore((state) => state.setRightSidebarTab);
+  const rightSidebarWidth = useNoteStore((state) => state.rightSidebarWidth);
+  const setRightSidebarWidth = useNoteStore((state) => state.setRightSidebarWidth);
   const theme = useNoteStore((state) => state.theme);
 
   const [newFileNameModal, setNewFileNameModal] = useState(false);
@@ -101,19 +106,45 @@ export default function App() {
     }
   };
 
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = rightSidebarWidth;
+    const el = sidebarRef.current;
+    if (!el) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.max(180, Math.min(600, startWidth + startX - e.clientX));
+      el.style.width = newWidth + 'px';
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      if (sidebarRef.current) {
+        setRightSidebarWidth(parseInt(sidebarRef.current.style.width));
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [rightSidebarWidth, setRightSidebarWidth]);
+
   return (
     <div data-theme={theme} className="flex h-screen w-screen bg-theme-sidebar-bg text-theme-text overflow-hidden font-sans">
-      <Toaster position="top-center" richColors />
+      <Toaster position="top-center" richColors closeButton />
       {/* Sidebar Navigation */}
       <Sidebar />
 
       {/* Main Workspace Area with relative padding support for floating toggle */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-theme-bg relative">
-        {/* Floating Right Sidebar Toggle for Landing Page */}
-        {!activeTab && openTabs.length > 0 && (
+        {/* Floating Right Sidebar Toggle */}
+        {!activeTab && (
           <button
             onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-            title={rightSidebarOpen ? "Hide Open Documents list" : "Show Open Documents list"}
+            title={rightSidebarOpen ? "Collapse sidebar" : "Open sidebar"}
             className={`fixed top-4 right-4 z-40 p-2 rounded-lg border border-theme-border cursor-pointer shadow-lg duration-150 transition-all flex items-center gap-1.5 text-xs font-mono font-medium ${
               rightSidebarOpen
                 ? 'bg-theme-active text-theme-white hover:bg-theme-hover'
@@ -121,7 +152,7 @@ export default function App() {
             }`}
           >
             <Columns className="w-3.5 h-3.5" />
-            <span>{rightSidebarOpen ? "Close Docs" : "View Open Docs"}</span>
+            <span>{rightSidebarOpen ? "Close Panel" : "Open Panel"}</span>
           </button>
         )}
 
@@ -309,78 +340,117 @@ export default function App() {
       </div>
 
       {/* Collapsible Right Sidebar */}
-      {rightSidebarOpen && openTabs.length > 0 && (
-        <div className="w-64 bg-theme-sidebar-bg border-l border-theme-border flex flex-col h-full shrink-0 select-none animate-fade-in">
-          {/* Header */}
-          <div className="h-12 border-b border-theme-border px-4 flex items-center justify-between bg-theme-sidebar-header truncate">
-            <span className="font-sans font-semibold text-xs uppercase tracking-wider text-theme-muted flex items-center gap-2 truncate">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-              Open Documents ({openTabs.length})
-            </span>
+      {rightSidebarOpen && (
+        <div ref={sidebarRef} className="relative bg-theme-sidebar-bg border-l border-theme-border flex flex-col h-full shrink-0 animate-fade-in" style={{ width: rightSidebarWidth }}>
+          {/* Resize Handle */}
+          <div
+            className="absolute -left-1 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"
+            onMouseDown={handleResizeStart}
+          >
+            <div className="w-0.5 h-8 rounded-full bg-theme-border group-hover:bg-theme-border-hover group-active:bg-theme-border-hover transition-colors" />
+          </div>
+          {/* Tab Bar */}
+          <div className="h-12 border-b border-theme-border flex items-stretch bg-theme-sidebar-header">
+            <button
+              onClick={() => setRightSidebarTab('documents')}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                rightSidebarTab === 'documents'
+                  ? 'text-theme-white border-b-2 border-theme-white'
+                  : 'text-theme-darker hover:text-theme-muted'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Documents
+            </button>
+            <button
+              onClick={() => setRightSidebarTab('chat')}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                rightSidebarTab === 'chat'
+                  ? 'text-theme-white border-b-2 border-theme-white'
+                  : 'text-theme-darker hover:text-theme-muted'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Chat
+            </button>
             <button
               onClick={() => setRightSidebarOpen(false)}
               title="Collapse Sidebar"
-              className="text-theme-darker hover:text-theme-white p-1 rounded hover:bg-theme-hover cursor-pointer shrink-0"
+              className="px-2 text-theme-darker hover:text-theme-white hover:bg-theme-hover cursor-pointer flex items-center shrink-0"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          {/* List of Open Files */}
-          <div className="flex-1 overflow-y-auto px-2 py-3 thin-scrollbar space-y-1">
-            {openTabs.map((tabPath) => {
-              const isActive = activeTab === tabPath;
-              const parts = tabPath.split('/');
-              const rawName = parts.pop() || 'Untitled';
-              const name = rawName.endsWith('.md') ? rawName.replace(/\.md$/, '') : rawName;
-              const parentFolder = parts.length > 0 ? parts.join('/') : '';
-
-              return (
-                <div
-                  key={tabPath}
-                  onClick={() => setActiveTab(tabPath)}
-                  className={`group relative flex flex-col px-3 py-2 rounded text-xs transition-all duration-150 cursor-pointer ${
-                    isActive
-                      ? 'bg-theme-active text-theme-white font-medium border-l-2 border-theme-white'
-                      : 'text-theme-muted hover:bg-theme-hover/55 hover:text-theme-white'
-                  }`}
-                >
-                  <div className="flex items-center justify-between min-w-0">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <FileText className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-theme-white' : 'text-theme-darker'}`} />
-                      <span className="truncate leading-none">{name}</span>
-                    </div>
-
-                    {/* Close Tab Button */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeTab(tabPath);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 text-theme-darker hover:text-red-400 p-0.5 rounded transition-all ml-1.5 cursor-pointer shrink-0"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  
-                  {/* Subtle Sub-path directory breadcrumb underneath */}
-                  {parentFolder && (
-                    <div className="pl-5.5 pt-1 text-[10px] font-mono text-theme-darker truncate">
-                      {parentFolder}
-                    </div>
-                  )}
+          {/* Documents Tab */}
+          {rightSidebarTab === 'documents' && (
+            <>
+              {openTabs.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center text-[11px] text-theme-darker px-4 text-center">
+                  No open documents
                 </div>
-              );
-            })}
-          </div>
+              ) : (
+                <>
+                  <div className="flex-1 overflow-y-auto px-2 py-3 thin-scrollbar space-y-1">
+                    {openTabs.map((tabPath) => {
+                      const isActive = activeTab === tabPath;
+                      const parts = tabPath.split('/');
+                      const rawName = parts.pop() || 'Untitled';
+                      const name = rawName.endsWith('.md') ? rawName.replace(/\.md$/, '') : rawName;
+                      const parentFolder = parts.length > 0 ? parts.join('/') : '';
 
-          {/* Sidebar Footer */}
-          <div className="p-4 border-t border-theme-border bg-theme-sidebar-header text-[10px] text-theme-muted font-mono select-none">
-            <div className="flex items-center justify-between">
-              <span>ACTIVE NOTES</span>
-              <span>{openTabs.length} TOTAL</span>
-            </div>
-          </div>
+                      return (
+                        <div
+                          key={tabPath}
+                          onClick={() => setActiveTab(tabPath)}
+                          className={`group relative flex flex-col px-3 py-2 rounded text-xs transition-all duration-150 cursor-pointer ${
+                            isActive
+                              ? 'bg-theme-active text-theme-white font-medium border-l-2 border-theme-white'
+                              : 'text-theme-muted hover:bg-theme-hover/55 hover:text-theme-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between min-w-0">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <FileText className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-theme-white' : 'text-theme-darker'}`} />
+                              <span className="truncate leading-none">{name}</span>
+                            </div>
+
+                            {/* Close Tab Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeTab(tabPath);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 text-theme-darker hover:text-red-400 p-0.5 rounded transition-all ml-1.5 cursor-pointer shrink-0"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          
+                          {/* Subtle Sub-path directory breadcrumb underneath */}
+                          {parentFolder && (
+                            <div className="pl-5.5 pt-1 text-[10px] font-mono text-theme-darker truncate">
+                              {parentFolder}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="p-4 border-t border-theme-border bg-theme-sidebar-header text-[10px] text-theme-muted font-mono select-none">
+                    <div className="flex items-center justify-between">
+                      <span>ACTIVE NOTES</span>
+                      <span>{openTabs.length} TOTAL</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Chat Tab */}
+          {rightSidebarTab === 'chat' && <ChatPanel />}
         </div>
       )}
 

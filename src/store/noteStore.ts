@@ -88,11 +88,15 @@ interface NoteState {
   collapsedFolders: Record<string, boolean>; // path -> collapsed state
   showSandboxModal: boolean;
   rightSidebarOpen: boolean;
+  rightSidebarTab: 'documents' | 'chat';
+  rightSidebarWidth: number;
   theme: 'light' | 'dark';
 
   // Actions
   setShowSandboxModal: (show: boolean) => void;
   setRightSidebarOpen: (open: boolean) => void;
+  setRightSidebarTab: (tab: 'documents' | 'chat') => void;
+  setRightSidebarWidth: (width: number) => void;
   setSearchQuery: (query: string) => void;
   toggleFolderCollapse: (path: string) => void;
   openFolderPicker: () => Promise<void>;
@@ -289,7 +293,7 @@ const getInitialTheme = (): 'light' | 'dark' => {
 };
 
 // Recursive helper to build tree from FileSystemDirectoryHandle (Real API)
-async function getFilesRecursively(
+export async function getFilesRecursively(
   dirHandle: FileSystemDirectoryHandle,
   relativeParentPath = "",
   collapsedMap: Record<string, boolean> = {}
@@ -334,7 +338,7 @@ async function getFilesRecursively(
 }
 
 // Build helper for simulated directory sorting and node construction
-function buildTreeFromPaths(
+export function buildTreeFromPaths(
   simulatedFiles: SimulatedFile[],
   collapsedMap: Record<string, boolean> = {},
   searchQuery = ""
@@ -410,7 +414,7 @@ function buildTreeFromPaths(
 }
 
 // Search utility for filtering the real API FileNode tree recursively
-function filterRealFileTree(nodes: FileNode[], query: string): FileNode[] {
+export function filterRealFileTree(nodes: FileNode[], query: string): FileNode[] {
   if (!query.trim()) return nodes;
   const q = query.toLowerCase();
 
@@ -448,10 +452,14 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   collapsedFolders: getInitialCollapsedFolders(),
   showSandboxModal: false,
   rightSidebarOpen: true,
+  rightSidebarTab: 'chat',
+  rightSidebarWidth: 600,
   theme: getInitialTheme(),
 
   setShowSandboxModal: (show: boolean) => set({ showSandboxModal: show }),
   setRightSidebarOpen: (open: boolean) => set({ rightSidebarOpen: open }),
+  setRightSidebarTab: (tab: 'documents' | 'chat') => set({ rightSidebarTab: tab }),
+  setRightSidebarWidth: (width: number) => set({ rightSidebarWidth: width }),
   setTheme: (theme: 'light' | 'dark') => set({ theme }),
 
   setSearchQuery: (query: string) => {
@@ -1031,6 +1039,7 @@ useNoteStore.subscribe((state) => {
   localStorage.setItem('noted_active_tab', state.activeTab || '');
   localStorage.setItem('noted_collapsed_folders', JSON.stringify(state.collapsedFolders));
   localStorage.setItem('noted_theme', state.theme);
+  localStorage.setItem('noted_right_sidebar_width', String(state.rightSidebarWidth));
 });
 
 // Initialize the store immediately with the initial tree

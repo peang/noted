@@ -458,9 +458,6 @@ export default function Sidebar() {
       {/* Sidebar Footer */}
       <div className="mt-auto p-4 border-t border-theme-border bg-theme-sidebar-header flex items-center justify-between gap-2.5">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded bg-gradient-to-br from-neutral-800 to-theme-bg border border-theme-border flex items-center justify-center text-[10px] text-theme-muted font-mono shrink-0 select-none">
-            OS
-          </div>
           <div className="flex flex-col min-w-0">
             <span className="text-xs font-semibold text-theme-white truncate" title={folderName}>
               {folderName || "/notes"}
