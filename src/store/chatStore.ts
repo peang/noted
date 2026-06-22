@@ -119,7 +119,7 @@ async function buildWorkspaceContext(mode: 'plan' | 'build'): Promise<string> {
   if (mode === 'plan') {
     parts.push('You are in PLAN MODE — analysis only. You CANNOT create, update, copy, or modify any files. If the user asks you to perform any action (write, copy, move, delete, edit), politely refuse and explain you are in plan mode. Do not output file contents as a response to action requests.');
   } else {
-    parts.push('You have tools `read_file` and `write_file` available. Use `read_file` to read files, and `write_file` to create or update notes in the workspace. When writing or updating files, do not echo the file content in your response — just confirm what was done.');
+    parts.push('You have tools `read_file` and `write_file`. When the user asks you to create, copy, or modify files, you MUST use `write_file` — never output file content directly in your response. After successfully using `write_file`, just confirm briefly like "Done" or "Created file.md". Never echo the file content — use the tool, then confirm.');
   }
   parts.push('You are a note assistant — work strictly within the opened workspace folder. Keep responses simple, direct, and easy to read. Do not use markdown formatting or code blocks. Answer based only on the notes provided.');
 
