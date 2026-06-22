@@ -501,22 +501,26 @@ export const useNoteStore = create<NoteState>((set, get) => ({
 
   openFolderPicker: async () => {
     try {
+      console.log('[picker] step 1 - checking API');
       if (typeof (window as any).showDirectoryPicker !== 'function') {
         throw new Error("Local folder access is not supported by your browser or inside this sandbox. Running on Simulated Mode!");
       }
+      console.log('[picker] step 2 - API exists, calling showDirectoryPicker');
 
       const handle = await (window as any).showDirectoryPicker({
         mode: 'readwrite'
       });
-      console.log('[openFolderPicker] got handle:', handle.name);
+
+      console.log('[picker] step 3 - got handle:', handle?.name, typeof handle);
+      if (!handle) throw new Error('Picker returned empty handle');
 
       await saveRootHandle(handle);
-      console.log('[openFolderPicker] saved handle to IndexedDB');
+      console.log('[picker] step 4 - saved to IndexedDB');
 
       try {
         const { useChatStore } = await import('./chatStore');
         useChatStore.getState().clearChat();
-      } catch {}
+      } catch (e) { console.log('[picker] chat clear error (non-critical):', e); }
 
       set({
         rootHandle: handle,
@@ -526,18 +530,15 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         activeTab: null,
         activeContent: null
       });
+      console.log('[picker] step 5 - state set, building tree');
 
       const { collapsedFolders, searchQuery } = get();
-      console.log('[openFolderPicker] building tree...');
       const tree = await getFilesRecursively(handle, "", collapsedFolders);
-      console.log('[openFolderPicker] tree built:', tree.length, 'nodes');
-      const filtered = filterRealFileTree(tree, searchQuery);
-      console.log('[openFolderPicker] filtered tree:', filtered.length, 'nodes');
-      set({ fileTree: filtered });
-      console.log('[openFolderPicker] done');
+      console.log('[picker] step 6 - tree built:', tree.length, 'nodes');
+      set({ fileTree: filterRealFileTree(tree, searchQuery) });
+      console.log('[picker] step 7 - DONE');
     } catch (err: any) {
-      console.warn("Folder picker failed:", err);
-      console.log('[openFolderPicker] error name:', err?.name, 'message:', err?.message);
+      console.error('[picker] ERROR at step:', err);
       
       const errText = String(err?.message || "").toLowerCase();
       const isSandboxException = 

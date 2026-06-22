@@ -82,11 +82,13 @@ export default function Sidebar() {
       await openFolderPicker();
       console.log('[handleOpenFolder] openFolderPicker succeeded');
     } catch (err: any) {
-      console.log('[handleOpenFolder] caught error:', err?.name, err?.message);
+      console.warn('[handleOpenFolder] caught:', err?.name, err?.message);
       if (err?.name === 'AbortError') {
+        console.log('[handleOpenFolder] user cancelled picker');
         return;
       }
       if (err?.message?.includes("Iframe Sandbox Constraint")) {
+        console.log('[handleOpenFolder] sandbox constraint');
         return;
       }
       const msg = err?.message || "File access is limited in some browser environments.";
