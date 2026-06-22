@@ -124,14 +124,14 @@ function ChatView() {
   }, []);
 
   useEffect(() => {
-    if (!isLoading) {
+    requestAnimationFrame(() => {
       textareaRef.current?.focus();
-    }
+    });
   }, [isLoading]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Tab') {
+      if (e.key === 'Tab' && document.activeElement === textareaRef.current) {
         e.preventDefault();
         const newMode = mode === 'plan' ? 'build' : 'plan';
         setMode(newMode);
@@ -147,7 +147,6 @@ function ChatView() {
     if (!content || isLoading) return;
     setInput('');
     sendMessage(content);
-    textareaRef.current?.focus();
   };
 
   return (
@@ -259,9 +258,9 @@ function ChatView() {
                 }
               }}
               placeholder="Ask about your workspace..."
-              disabled={isLoading}
+              readOnly={isLoading}
               rows={1}
-              className="flex-1 bg-theme-input border border-theme-border rounded px-3 py-2 text-xs text-theme-text placeholder-theme-darker outline-none focus:border-theme-border-hover disabled:opacity-50 resize-none overflow-y-auto min-h-[32px] max-h-[200px] leading-relaxed"
+              className="flex-1 bg-theme-input border border-theme-border rounded px-3 py-2 text-xs text-theme-text placeholder-theme-darker outline-none focus:border-theme-border-hover read-only:opacity-50 resize-none overflow-y-auto min-h-[32px] max-h-[200px] leading-relaxed"
             />
             <button
               onClick={handleSend}
