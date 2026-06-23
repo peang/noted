@@ -1,8 +1,6 @@
 const CACHE = 'noted-v1';
-const SHELL = ['/', '/index.html'];
 
-self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
@@ -18,6 +16,14 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request)),
+    caches.open(CACHE).then((c) =>
+      c.match(e.request).then((cached) => {
+        const fetched = fetch(e.request).then((res) => {
+          if (res.ok) c.put(e.request, res.clone());
+          return res;
+        });
+        return cached || fetched;
+      }),
+    ),
   );
 });

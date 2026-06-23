@@ -1,12 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "react-example",
+  "main": "worker.ts",
   "compatibility_date": "2026-06-19",
   "observability": {
     "enabled": true
   },
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },
   "compatibility_flags": [
