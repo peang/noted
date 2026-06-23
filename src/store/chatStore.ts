@@ -183,7 +183,9 @@ async function executeWriteFile(path: string, content: string): Promise<string> 
       ? simulatedFiles.map((f, i) => i === idx ? { ...f, content } : f)
       : [...simulatedFiles, { path, kind: 'file' as const, content }];
     const tree = buildTreeFromPaths(newFiles, state.collapsedFolders, state.searchQuery);
-    useNoteStore.setState({ simulatedFiles: newFiles, fileTree: tree });
+    const updates: Record<string, any> = { simulatedFiles: newFiles, fileTree: tree };
+    if (state.activeTab === path) updates.activeContent = content;
+    useNoteStore.setState(updates);
     return `Written "${path}".`;
   }
 
@@ -205,7 +207,9 @@ async function executeWriteFile(path: string, content: string): Promise<string> 
     await writable.close();
 
     const tree = await getFilesRecursively(rootHandle, '', state.collapsedFolders);
-    useNoteStore.setState({ fileTree: filterRealFileTree(tree, state.searchQuery) });
+    const updates2: Record<string, any> = { fileTree: filterRealFileTree(tree, state.searchQuery) };
+    if (state.activeTab === path) updates2.activeContent = content;
+    useNoteStore.setState(updates2);
 
     return `Written "${path}".`;
   } catch (e: any) {

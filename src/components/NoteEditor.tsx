@@ -185,6 +185,19 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     };
   }, [editor, filePath, fileType]);
 
+  // Reload editor when external write updates activeContent (AI write_file)
+  useEffect(() => {
+    if (fileType !== 'markdown') return;
+    if (!activeContent || !lastSavedRef.current) return;
+    if (activeContent === lastSavedRef.current) return;
+
+    lastSavedRef.current = activeContent;
+    (async () => {
+      const blocks = await editor.tryParseMarkdownToBlocks(activeContent);
+      editor.replaceBlocks(editor.document, blocks);
+    })();
+  }, [activeContent, fileType, editor]);
+
   // Handle changes with 500ms debounce to save to Zustand store
   const handleEditorChange = async () => {
     if (isLoading) return;
