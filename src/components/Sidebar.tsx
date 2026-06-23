@@ -326,9 +326,7 @@ export default function Sidebar() {
       {/* Brand space */}
       <div className="h-12 border-b border-theme-border px-4 flex items-center justify-between bg-theme-sidebar-header">
         <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 bg-theme-white rounded flex items-center justify-center">
-            <span className="text-theme-bg font-bold text-xs">N</span>
-          </div>
+          <img src="/noted-icon.svg" alt="Noted" className="w-6 h-6" />
           <span className="font-sans font-semibold tracking-tight text-sm text-theme-white">Noted</span>
         </div>
         <div className="text-[10px] font-mono text-theme-darker font-semibold uppercase">v1.0</div>

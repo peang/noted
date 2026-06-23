@@ -333,7 +333,7 @@ export default function App() {
             <button
               onClick={() => setRightSidebarOpen(false)}
               title="Close Chat"
-              className="px-3 text-[11px] font-semibold text-red-400 hover:text-red-300 hover:bg-red-950/30 cursor-pointer flex items-center shrink-0 transition-colors"
+              className="px-3 text-[11px] font-semibold text-red-400 hover:text-red-400 hover:bg-theme-hover cursor-pointer flex items-center shrink-0 transition-colors"
             >
               Close Chat
             </button>

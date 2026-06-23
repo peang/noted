@@ -16,6 +16,7 @@ interface ChatState {
   isLoading: boolean;
   chatError: string | null;
   lastUsage: { prompt: number; completion: number; reasoning: number } | null;
+  aiStatus: string | null;
 
   setApiKey: (key: string) => void;
   clearApiKey: () => void;
@@ -146,14 +147,21 @@ async function buildWorkspaceContext(): Promise<string> {
   const parts: string[] = [
     `You are a helpful AI assistant for a note-taking workspace called "${folderName}".`,
     `The workspace is stored on ${isSimulated ? 'a simulated in-memory filesystem' : 'the local disk directory'}.\n`,
+    `FORMATTING: Use **bold** for emphasis and *italic* for subtle emphasis. No headings, no tables, no code blocks, no markdown block syntax. Just plain text with bold/italic where needed.\n`,
     `Current workspace file structure:`,
     treePreview,
   ];
 
-  if (activeTab && activeContent) {
+  let content = activeContent;
+  if (activeTab && !content) {
+    await useNoteStore.getState().openFile(activeTab);
+    content = useNoteStore.getState().activeContent;
+  }
+
+  if (activeTab && content) {
     parts.push(`The user currently has "${activeTab}" open with the following content:`);
     parts.push('```' + activeTab.split('.').pop() + '');
-    parts.push(activeContent);
+    parts.push(content);
     parts.push('```');
   } else if (activeTab) {
     parts.push(`The user currently has "${activeTab}" open.`);
@@ -161,7 +169,6 @@ async function buildWorkspaceContext(): Promise<string> {
 
   parts.push('You have tools `read_file` and `write_file`. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to save changes to existing files. You cannot create new files.');
   parts.push('Be brief and direct. No pleasantries, no disclaimers, no explanations. Just answer the question and stop. Answer based only on the notes provided.');
-  parts.push('CRITICAL: Respond in PLAIN TEXT ONLY. NEVER use markdown (no **bold**, no *italic*, no headings, no code blocks, no --- lines, no backticks). Use "- " for bullet lists and "1. " for numbered lists. Plain text only. No exceptions.');
 
   return parts.join('\n');
 }
@@ -294,6 +301,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoading: false,
   chatError: null,
   lastUsage: null,
+  aiStatus: null,
 
   setApiKey: (key: string) => {
     set({ apiKey: key, chatError: null });
@@ -448,9 +456,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
               const args = JSON.parse(tc.function.arguments);
               let result: string;
               if (tc.function.name === 'read_file') {
+                set({ aiStatus: `📖 Reading ${args.path}...` });
                 result = await executeReadFile(args.path);
+                set({ aiStatus: null });
               } else if (tc.function.name === 'write_file') {
+                set({ aiStatus: `✏️ Writing ${args.path}...` });
                 result = await executeWriteFile(args.path, args.content);
+                set({ aiStatus: null });
               } else {
                 result = `Error: Unknown tool "${tc.function.name}"`;
               }

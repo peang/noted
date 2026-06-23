@@ -1127,9 +1127,4 @@ useNoteStore.subscribe((state) => {
 const currentStore = useNoteStore.getState();
 currentStore.restoreRootHandle().then(() => {
   currentStore.setSearchQuery("");
-
-  // If there was an active tab restored, load its file content immediately
-  if (currentStore.activeTab) {
-    currentStore.openFile(currentStore.activeTab);
-  }
 });

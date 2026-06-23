@@ -143,7 +143,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
 
   const fileType = getFileType(filePath);
 
-  // Load content into editor on first mount (for Markdown files only)
+  // Load content into editor on mount or when filePath changes
   useEffect(() => {
     if (fileType !== 'markdown') return;
 
@@ -152,7 +152,13 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     async function loadContent() {
       setIsLoading(true);
       try {
-        const contentToLoad = activeContent || `# ${filePath.split('/').pop()?.replace(/\.md$/, '') || 'Untitled'}\n\n`;
+        // Ensure activeContent is loaded
+        if (!activeContent) {
+          await useNoteStore.getState().openFile(filePath);
+        }
+
+        const state = useNoteStore.getState();
+        const contentToLoad = state.activeContent || `# ${filePath.split('/').pop()?.replace(/\.md$/, '') || 'Untitled'}\n\n`;
         
         lastSavedRef.current = contentToLoad;
         const blocks = await editor.tryParseMarkdownToBlocks(contentToLoad);
@@ -240,7 +246,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
             className={`px-2.5 py-1 rounded border transition-all cursor-pointer text-xs font-mono font-semibold ${
               rightSidebarOpen
                 ? 'bg-theme-active text-theme-white hover:bg-theme-hover border-theme-border'
-                : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border-amber-500/30'
+                : 'bg-theme-input text-amber-400 hover:bg-theme-hover border-amber-500/30'
             }`}
           >
             Open Chat

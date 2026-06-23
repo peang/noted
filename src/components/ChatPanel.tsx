@@ -10,20 +10,90 @@ function stripSystemReminder(text: string): string {
   return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
 }
 
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderInline(text: string): string {
+  return escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/~~(.+?)~~/g, '<del>$1</del>');
+}
+
+function renderMarkdown(text: string): React.ReactNode[] {
+  const blocks = text.split('\n\n');
+  const els: React.ReactNode[] = [];
+  let tableRows: string[] = [];
+
+  const flushTable = (i: number) => {
+    if (tableRows.length < 2) { els.push(<p key={i}>{tableRows.join('\n')}</p>); tableRows = []; return; }
+    const header = tableRows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+    const body = tableRows.slice(2).map(r => {
+      const cells = r.split('|').filter(c => c.trim()).map(c => renderInline(c.trim()));
+      return `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
+    }).join('');
+    els.push(<table key={i} className="chat-table"><thead><tr>{header.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody dangerouslySetInnerHTML={{ __html: body }} /></table>);
+    tableRows = [];
+  };
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i].trim();
+    if (!block) continue;
+
+    const lines = block.split('\n');
+
+    // Table block
+    if (lines.every(l => l.trim().startsWith('|') && l.trim().endsWith('|'))) {
+      tableRows.push(...lines);
+      continue;
+    }
+    if (tableRows.length) { flushTable(i); }
+
+    // Bullet list
+    if (lines.every(l => l.trim().startsWith('- '))) {
+      const items = lines.map(l => `<li>${renderInline(l.trim().slice(2))}</li>`).join('');
+      els.push(<ul key={i} className="list-disc pl-4 space-y-0.5" dangerouslySetInnerHTML={{ __html: items }} />);
+      continue;
+    }
+
+    // Numbered list
+    if (lines.every(l => /^\d+\.\s/.test(l.trim()))) {
+      const items = lines.map(l => `<li>${renderInline(l.trim().replace(/^\d+\.\s/, ''))}</li>`).join('');
+      els.push(<ol key={i} className="list-decimal pl-4 space-y-0.5" dangerouslySetInnerHTML={{ __html: items }} />);
+      continue;
+    }
+
+    // Horizontal rule
+    if (lines.every(l => /^[-*]{3,}\s*$/.test(l.trim()))) {
+      els.push(<hr key={i} className="border-t border-theme-border my-2" />);
+      continue;
+    }
+
+    // Regular paragraph
+    const html = lines.map(l => renderInline(l)).join('<br/>');
+    els.push(<p key={i} dangerouslySetInnerHTML={{ __html: html }} />);
+  }
+
+  if (tableRows.length) flushTable(blocks.length);
+
+  return els;
+}
+
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === 'user';
-  const displayContent = msg.content ? stripSystemReminder(msg.content) : '';
+  const content = msg.content ? stripSystemReminder(msg.content) : '';
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`max-w-[85%] px-3 py-2 rounded-lg text-xs leading-relaxed whitespace-pre-wrap ${
-          isUser
-            ? 'bg-theme-active text-theme-white rounded-br-sm'
-            : 'bg-theme-card border border-theme-border text-theme-text rounded-bl-sm'
-        }`}
-      >
-        {displayContent}
-      </div>
+      {isUser ? (
+        <div className="max-w-[85%] px-3 py-2 rounded-lg rounded-br-sm text-xs leading-relaxed whitespace-pre-wrap bg-theme-active text-theme-white">
+          {content}
+        </div>
+      ) : (
+        <div className="chat-bubble max-w-[85%] px-3 py-2 rounded-lg rounded-bl-sm text-xs leading-relaxed bg-theme-card border border-theme-border text-theme-text">
+          {renderMarkdown(content)}
+        </div>
+      )}
     </div>
   );
 }
@@ -87,6 +157,7 @@ function ChatView() {
   const availableModels = useChatStore((s) => s.availableModels);
   const isLoading = useChatStore((s) => s.isLoading);
   const chatError = useChatStore((s) => s.chatError);
+  const aiStatus = useChatStore((s) => s.aiStatus);
   const folderName = useNoteStore((s) => s.folderName);
   const activeTab = useNoteStore((s) => s.activeTab);
   const workspaceCounts = useNoteStore((s) => s.workspaceCounts);
@@ -166,7 +237,7 @@ function ChatView() {
             });
           }}
           title="Start a new chat session"
-          className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-sky-500/30 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 cursor-pointer transition-all shrink-0"
+          className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-sky-500/30 text-sky-400 hover:text-sky-400 hover:bg-theme-hover cursor-pointer transition-all shrink-0"
         >
           New Chat
         </button>
@@ -219,6 +290,11 @@ function ChatView() {
         )}
         {chatError && (
           <p className="text-[11px] text-red-400 text-center">{chatError}</p>
+        )}
+        {aiStatus && (
+          <div className="flex justify-start">
+            <div className="text-[10px] text-theme-muted italic px-1 py-0.5">{aiStatus}</div>
+          </div>
         )}
       </div>
 

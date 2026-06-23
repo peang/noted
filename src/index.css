@@ -174,3 +174,51 @@
 .bg-neutral-905 {
   background-color: #0d0d0d;
 }
+
+/* Chat bubble inline styling */
+.chat-bubble strong {
+  color: var(--color-theme-white);
+}
+.chat-bubble em {
+  color: var(--color-theme-muted);
+}
+.chat-bubble del {
+  color: var(--color-theme-darker);
+}
+.chat-bubble ul {
+  list-style: disc;
+  padding-left: 1rem;
+}
+.chat-bubble ol {
+  list-style: decimal;
+  padding-left: 1rem;
+}
+.chat-bubble li {
+  margin-bottom: 0.125rem;
+}
+.chat-bubble p {
+  margin-bottom: 0.25rem;
+}
+.chat-bubble p:last-child {
+  margin-bottom: 0;
+}
+.chat-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.25rem 0;
+  font-size: 10px;
+}
+.chat-table th,
+.chat-table td {
+  border: 1px solid var(--color-theme-border);
+  padding: 2px 6px;
+  text-align: left;
+}
+.chat-table th {
+  background: var(--color-theme-active);
+  color: var(--color-theme-white);
+  font-weight: 600;
+}
+.chat-table td {
+  color: var(--color-theme-text);
+}
