@@ -41,6 +41,7 @@ export default function Sidebar() {
   
   const searchQuery = useNoteStore((state) => state.searchQuery);
   const setSearchQuery = useNoteStore((state) => state.setSearchQuery);
+  const workspaceCounts = useNoteStore((state) => state.workspaceCounts);
 
   // UI Inline actions state
   // path being edited or parentPath where we are adding a child
@@ -485,7 +486,7 @@ export default function Sidebar() {
               {folderName || "/notes"}
             </span>
             <span className="text-[10px] text-theme-muted truncate">
-              {isSimulated ? "Sandbox Memory" : "Native Disk Directory"}
+              {isSimulated ? "Sandbox Memory" : `${workspaceCounts.files} files, ${workspaceCounts.folders} folders`}
             </span>
           </div>
         </div>

@@ -41,6 +41,7 @@ export default function App() {
   const rightSidebarWidth = useNoteStore((state) => state.rightSidebarWidth);
   const setRightSidebarWidth = useNoteStore((state) => state.setRightSidebarWidth);
   const theme = useNoteStore((state) => state.theme);
+  const workspacePaths = useNoteStore((state) => state.workspacePaths);
 
   const [newFileNameModal, setNewFileNameModal] = useState(false);
   const [newFileName, setNewFileName] = useState('');
@@ -69,23 +70,13 @@ export default function App() {
         });
     }
 
-    // Traverse real tree recursively to get flat files array
-    const flat: { name: string; path: string }[] = [];
-    const traverse = (nodes: FileNode[]) => {
-      for (const node of nodes) {
-        if (node.kind === 'file') {
-          const cleanName = node.name.endsWith('.md') ? node.name.replace(/\.md$/, '') : node.name;
-          flat.push({
-            name: cleanName,
-            path: node.path,
-          });
-        } else if (node.children) {
-          traverse(node.children);
-        }
-      }
-    };
-    traverse(fileTree);
-    return flat;
+    return workspacePaths
+      .filter((p) => !p.endsWith('/'))
+      .map((p) => {
+        const rawName = p.split('/').pop() || 'Untitled';
+        const cleanName = rawName.endsWith('.md') ? rawName.replace(/\.md$/, '') : rawName;
+        return { name: cleanName, path: p };
+      });
   };
 
   const allFiles = getWorkspaceFiles();
@@ -138,24 +129,8 @@ export default function App() {
       {/* Sidebar Navigation */}
       <Sidebar />
 
-      {/* Main Workspace Area with relative padding support for floating toggle */}
+      {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-theme-bg relative">
-        {/* Floating Right Sidebar Toggle */}
-        {!activeTab && (
-          <button
-            onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-            title={rightSidebarOpen ? "Collapse sidebar" : "Open sidebar"}
-            className={`fixed top-4 right-4 z-40 p-2 rounded-lg border border-theme-border cursor-pointer shadow-lg duration-150 transition-all flex items-center gap-1.5 text-xs font-mono font-medium ${
-              rightSidebarOpen
-                ? 'bg-theme-active text-theme-white hover:bg-theme-hover'
-                : 'bg-theme-card text-theme-muted hover:text-theme-white hover:bg-theme-hover'
-            }`}
-          >
-            <Columns className="w-3.5 h-3.5" />
-            <span>{rightSidebarOpen ? "Close Panel" : "Open Panel"}</span>
-          </button>
-        )}
-
         {/* Tab Content Canvas */}
         {activeTab ? (
           <NoteEditor key={activeTab} filePath={activeTab} />
@@ -339,9 +314,9 @@ export default function App() {
         )}
       </div>
 
-      {/* Collapsible Right Sidebar */}
+      {/* Collapsible Right Sidebar — overlay mode (timpa editor) */}
       {rightSidebarOpen && (
-        <div ref={sidebarRef} className="relative bg-theme-sidebar-bg border-l border-theme-border flex flex-col h-full shrink-0 animate-fade-in" style={{ width: rightSidebarWidth }}>
+        <div ref={sidebarRef} className="fixed right-0 top-0 z-30 h-screen bg-theme-sidebar-bg border-l border-theme-border flex flex-col animate-fade-in shadow-2xl" style={{ width: rightSidebarWidth }}>
           {/* Resize Handle */}
           <div
             className="absolute -left-1 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"
@@ -349,108 +324,22 @@ export default function App() {
           >
             <div className="w-0.5 h-8 rounded-full bg-theme-border group-hover:bg-theme-border-hover group-active:bg-theme-border-hover transition-colors" />
           </div>
-          {/* Tab Bar */}
+          {/* Tab Bar — Chat only */}
           <div className="h-12 border-b border-theme-border flex items-stretch bg-theme-sidebar-header">
-            <button
-              onClick={() => setRightSidebarTab('documents')}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
-                rightSidebarTab === 'documents'
-                  ? 'text-theme-white border-b-2 border-theme-white'
-                  : 'text-theme-darker hover:text-theme-muted'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Documents
-            </button>
-            <button
-              onClick={() => setRightSidebarTab('chat')}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
-                rightSidebarTab === 'chat'
-                  ? 'text-theme-white border-b-2 border-theme-white'
-                  : 'text-theme-darker hover:text-theme-muted'
-              }`}
-            >
+            <div className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-theme-white">
               <Sparkles className="w-3.5 h-3.5" />
               Chat
-            </button>
+            </div>
             <button
               onClick={() => setRightSidebarOpen(false)}
-              title="Collapse Sidebar"
-              className="px-2 text-theme-darker hover:text-theme-white hover:bg-theme-hover cursor-pointer flex items-center shrink-0"
+              title="Close Chat"
+              className="px-3 text-[11px] font-semibold text-red-400 hover:text-red-300 hover:bg-red-950/30 cursor-pointer flex items-center shrink-0 transition-colors"
             >
-              <ChevronRight className="w-4 h-4" />
+              Close Chat
             </button>
           </div>
 
-          {/* Documents Tab */}
-          {rightSidebarTab === 'documents' && (
-            <>
-              {openTabs.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center text-[11px] text-theme-darker px-4 text-center">
-                  No open documents
-                </div>
-              ) : (
-                <>
-                  <div className="flex-1 overflow-y-auto px-2 py-3 thin-scrollbar space-y-1">
-                    {openTabs.map((tabPath) => {
-                      const isActive = activeTab === tabPath;
-                      const parts = tabPath.split('/');
-                      const rawName = parts.pop() || 'Untitled';
-                      const name = rawName.endsWith('.md') ? rawName.replace(/\.md$/, '') : rawName;
-                      const parentFolder = parts.length > 0 ? parts.join('/') : '';
-
-                      return (
-                        <div
-                          key={tabPath}
-                          onClick={() => setActiveTab(tabPath)}
-                          className={`group relative flex flex-col px-3 py-2 rounded text-xs transition-all duration-150 cursor-pointer ${
-                            isActive
-                              ? 'bg-theme-active text-theme-white font-medium border-l-2 border-theme-white'
-                              : 'text-theme-muted hover:bg-theme-hover/55 hover:text-theme-white'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between min-w-0">
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <FileText className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-theme-white' : 'text-theme-darker'}`} />
-                              <span className="truncate leading-none">{name}</span>
-                            </div>
-
-                            {/* Close Tab Button */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                closeTab(tabPath);
-                              }}
-                              className="opacity-0 group-hover:opacity-100 text-theme-darker hover:text-red-400 p-0.5 rounded transition-all ml-1.5 cursor-pointer shrink-0"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                          
-                          {/* Subtle Sub-path directory breadcrumb underneath */}
-                          {parentFolder && (
-                            <div className="pl-5.5 pt-1 text-[10px] font-mono text-theme-darker truncate">
-                              {parentFolder}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="p-4 border-t border-theme-border bg-theme-sidebar-header text-[10px] text-theme-muted font-mono select-none">
-                    <div className="flex items-center justify-between">
-                      <span>ACTIVE NOTES</span>
-                      <span>{openTabs.length} TOTAL</span>
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-
-          {/* Chat Tab */}
-          {rightSidebarTab === 'chat' && <ChatPanel />}
+          <ChatPanel />
         </div>
       )}
 

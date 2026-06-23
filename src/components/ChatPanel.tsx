@@ -1,11 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore, Message } from '../store/chatStore';
-import { useNoteStore, FileNode } from '../store/noteStore';
+import { useNoteStore } from '../store/noteStore';
 import { toast } from 'sonner';
 import { Send, Key, ExternalLink, Trash2, Sparkles, Loader2, FileText, Folder } from 'lucide-react';
 
+function stripSystemReminder(text: string): string {
+  const idx = text.indexOf('<system-reminder>');
+  if (idx !== -1) text = text.slice(0, idx).trim();
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+}
+
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === 'user';
+  const displayContent = msg.content ? stripSystemReminder(msg.content) : '';
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -15,7 +22,7 @@ function MessageBubble({ msg }: { msg: Message }) {
             : 'bg-theme-card border border-theme-border text-theme-text rounded-bl-sm'
         }`}
       >
-        {msg.content}
+        {displayContent}
       </div>
     </div>
   );
@@ -82,12 +89,10 @@ function ChatView() {
   const chatError = useChatStore((s) => s.chatError);
   const folderName = useNoteStore((s) => s.folderName);
   const activeTab = useNoteStore((s) => s.activeTab);
-  const fileTree = useNoteStore((s) => s.fileTree);
+  const workspaceCounts = useNoteStore((s) => s.workspaceCounts);
 
   const sendMessage = useChatStore((s) => s.sendMessage);
   const setModel = useChatStore((s) => s.setModel);
-  const mode = useChatStore((s) => s.mode);
-  const setMode = useChatStore((s) => s.setMode);
   const lastUsage = useChatStore((s) => s.lastUsage);
   const clearChat = useChatStore((s) => s.clearChat);
   const clearApiKey = useChatStore((s) => s.clearApiKey);
@@ -95,15 +100,10 @@ function ChatView() {
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
 
-  const countFiles = (nodes: FileNode[]): number =>
-    nodes.reduce((acc, n) => acc + (n.kind === 'file' ? 1 : 0) + (n.children ? countFiles(n.children) : 0), 0);
-
-  const fileCount = countFiles(fileTree);
-  const contextLabel = mode === 'plan'
-    ? `Recalling all ${fileCount} file${fileCount !== 1 ? 's' : ''} in "${folderName}"`
-    : activeTab
-      ? `Active: ${activeTab} · ${fileCount} file${fileCount !== 1 ? 's' : ''} in workspace`
-      : `${fileCount} file${fileCount !== 1 ? 's' : ''} in workspace ${fileCount > 0 ? '- open a file for deeper context' : ''}`;
+  const fileCount = workspaceCounts.files;
+  const contextLabel = activeTab
+    ? `Active: ${activeTab} · ${fileCount} file${fileCount !== 1 ? 's' : ''} in workspace`
+    : `${fileCount} file${fileCount !== 1 ? 's' : ''} in workspace`;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -128,19 +128,6 @@ function ChatView() {
       textareaRef.current?.focus();
     });
   }, [isLoading]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Tab' && document.activeElement === textareaRef.current) {
-        e.preventDefault();
-        const newMode = mode === 'plan' ? 'build' : 'plan';
-        setMode(newMode);
-        toast[newMode === 'plan' ? 'warning' : 'success'](newMode === 'plan' ? 'Plan Mode' : 'Build Mode', { duration: 3000 });
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [mode, setMode]);
 
   const handleSend = () => {
     const content = input.trim();
@@ -168,9 +155,18 @@ function ChatView() {
           ))}
         </select>
         <button
-          onClick={clearChat}
+          onClick={() => {
+            toast('Start a new chat?', {
+              description: 'This will clear the current conversation.',
+              duration: 10000,
+              action: {
+                label: 'Clear',
+                onClick: () => clearChat(),
+              },
+            });
+          }}
           title="Start a new chat session"
-          className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-theme-border text-theme-muted hover:text-theme-white hover:bg-theme-hover cursor-pointer transition-all shrink-0"
+          className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-sky-500/30 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 cursor-pointer transition-all shrink-0"
         >
           New Chat
         </button>
@@ -199,15 +195,6 @@ function ChatView() {
       <div className="px-3 py-1.5 border-b border-theme-border bg-theme-sidebar-header flex items-center gap-1.5 text-[10px] text-theme-darker font-mono">
         <FileText className="w-3 h-3 shrink-0" />
         <span className="truncate">{contextLabel}</span>
-      </div>
-
-      {/* Mode status bar */}
-      <div className={`px-3 py-1 text-[10px] font-mono flex items-center gap-1.5 border-b border-theme-border ${
-        mode === 'plan' ? 'text-amber-400 bg-amber-400/5' : 'text-emerald-400 bg-emerald-400/5'
-      }`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${mode === 'plan' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-        {mode === 'plan' ? 'Plan mode — analysis only' : 'Build mode — can read files'}
-        <span className="ml-auto text-theme-darker text-[9px]">Tab to switch</span>
       </div>
 
       {/* Messages */}

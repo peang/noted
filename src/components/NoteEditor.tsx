@@ -237,13 +237,13 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
           <button
             onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
             title={rightSidebarOpen ? "Hide Open Documents list" : "Show Open Documents list"}
-            className={`p-1.5 rounded border border-theme-border transition-all cursor-pointer flex items-center justify-center ${
+            className={`px-2.5 py-1 rounded border transition-all cursor-pointer text-xs font-mono font-semibold ${
               rightSidebarOpen
-                ? 'bg-theme-active text-theme-white hover:bg-theme-hover'
-                : 'bg-theme-input text-theme-muted hover:text-theme-white hover:bg-theme-active'
+                ? 'bg-theme-active text-theme-white hover:bg-theme-hover border-theme-border'
+                : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border-amber-500/30'
             }`}
           >
-            <Columns className="w-3.5 h-3.5" />
+            Open Chat
           </button>
         </div>
       </div>

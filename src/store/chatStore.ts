@@ -15,7 +15,6 @@ interface ChatState {
   availableModels: { id: string; name: string }[];
   isLoading: boolean;
   chatError: string | null;
-  mode: 'plan' | 'build';
   lastUsage: { prompt: number; completion: number; reasoning: number } | null;
 
   setApiKey: (key: string) => void;
@@ -23,7 +22,6 @@ interface ChatState {
   sendMessage: (content: string) => Promise<void>;
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
-  setMode: (mode: 'plan' | 'build') => void;
   clearChat: () => void;
 }
 
@@ -38,6 +36,14 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 
 function saveToStorage(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function stripSystemReminder(text: string): string {
+  if (text.includes('<system-reminder>') && !text.includes('</system-reminder>')) {
+    const idx = text.indexOf('<system-reminder>');
+    return text.slice(0, idx).trim();
+  }
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
 }
 
 async function readWorkspaceFiles(): Promise<string> {
@@ -94,16 +100,48 @@ function buildTreeString(nodes: FileNode[], indent = ''): string {
   return result;
 }
 
-async function buildWorkspaceContext(mode: 'plan' | 'build'): Promise<string> {
-  const state = useNoteStore.getState();
-  const { folderName, isSimulated, fileTree, activeTab, activeContent } = state;
-
-  let treePreview = '';
-  if (fileTree.length > 0) {
-    treePreview = buildTreeString(fileTree, '');
-  } else {
-    treePreview = '(empty)\n';
+async function buildFullTree(
+  isSimulated: boolean,
+  simulatedFiles: { path: string; kind: string }[],
+  workspacePaths: string[],
+  workspaceCounts: { files: number; folders: number }
+): Promise<string> {
+  if (isSimulated) {
+    const dirs = new Set<string>();
+    const lines: string[] = [];
+    for (const f of simulatedFiles) {
+      const parts = f.path.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        const dirPath = parts.slice(0, i).join('/');
+        if (!dirs.has(dirPath)) {
+          dirs.add(dirPath);
+          lines.push(`${'  '.repeat(i - 1)}📁 ${parts[i - 1]}/`);
+        }
+      }
+      lines.push(`${'  '.repeat(parts.length - 1)}📄 ${parts[parts.length - 1]}`);
+    }
+    const count = simulatedFiles.filter(f => f.kind === 'file').length;
+    return `📁 Workspace (${count} files)\n${lines.join('\n')}`;
   }
+
+  if (workspacePaths.length === 0) return '(empty)';
+
+  const lines = workspacePaths.map(p => {
+    const depth = p.replace(/\/$/, '').split('/').length - 1;
+    const indent = '  '.repeat(depth);
+    const isDir = p.endsWith('/');
+    const name = isDir ? p.split('/').slice(-2, -1)[0] + '/' : p.split('/').pop() || '';
+    return `${indent}${isDir ? '📁' : '📄'} ${name}`;
+  });
+
+  return `📁 Workspace (${workspaceCounts.files} files, ${workspaceCounts.folders} folders)\n${lines.join('\n')}`;
+}
+
+async function buildWorkspaceContext(): Promise<string> {
+  const state = useNoteStore.getState();
+  const { folderName, isSimulated, simulatedFiles, workspacePaths, workspaceCounts, activeTab, activeContent } = state;
+
+  const treePreview = await buildFullTree(isSimulated, simulatedFiles, workspacePaths, workspaceCounts);
 
   const parts: string[] = [
     `You are a helpful AI assistant for a note-taking workspace called "${folderName}".`,
@@ -112,40 +150,20 @@ async function buildWorkspaceContext(mode: 'plan' | 'build'): Promise<string> {
     treePreview,
   ];
 
-  if (mode === 'plan') {
-    parts.push('Here are all file contents in the workspace:');
-    const allContent = await readWorkspaceFiles();
-    parts.push(allContent || '(no files with readable content)');
-  } else {
-    if (activeTab && activeContent) {
-      parts.push(`The user currently has "${activeTab}" open with the following content:`);
-      parts.push('```' + activeTab.split('.').pop() + '');
-      parts.push(activeContent);
-      parts.push('```');
-    } else if (activeTab) {
-      parts.push(`The user currently has "${activeTab}" open.`);
-    }
+  if (activeTab && activeContent) {
+    parts.push(`The user currently has "${activeTab}" open with the following content:`);
+    parts.push('```' + activeTab.split('.').pop() + '');
+    parts.push(activeContent);
+    parts.push('```');
+  } else if (activeTab) {
+    parts.push(`The user currently has "${activeTab}" open.`);
   }
 
-  if (mode === 'plan') {
-    parts.push('You are in PLAN MODE — analysis only. You CANNOT create, update, copy, or modify any files. If the user asks you to perform any action (write, copy, move, delete, edit), politely refuse and explain you are in plan mode. Do not output file contents as a response to action requests.');
-  } else {
-    parts.push('You have tools `read_file` and `write_file`. When the user asks you to create, copy, or modify files, you MUST use `write_file` — never output file content directly in your response. After successfully using `write_file`, just confirm briefly like "Done" or "Created file.md". Never echo the file content — use the tool, then confirm.');
-  }
-  parts.push('You are a note assistant — work strictly within the opened workspace folder. Keep responses simple, direct, and easy to read. Do not use markdown formatting or code blocks. Answer based only on the notes provided.');
+  parts.push('You have tools `read_file` and `write_file`. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to save changes to existing files. You cannot create new files.');
+  parts.push('Be brief and direct. No pleasantries, no disclaimers, no explanations. Just answer the question and stop. Answer based only on the notes provided.');
+  parts.push('CRITICAL: Respond in PLAIN TEXT ONLY. NEVER use markdown (no **bold**, no *italic*, no headings, no code blocks, no --- lines, no backticks). Use "- " for bullet lists and "1. " for numbered lists. Plain text only. No exceptions.');
 
   return parts.join('\n');
-}
-
-function findFileNode(nodes: FileNode[], path: string): FileNode | null {
-  for (const node of nodes) {
-    if (node.path === path) return node;
-    if (node.children) {
-      const found = findFileNode(node.children, path);
-      if (found) return found;
-    }
-  }
-  return null;
 }
 
 async function executeWriteFile(path: string, content: string): Promise<string> {
@@ -190,7 +208,7 @@ async function executeWriteFile(path: string, content: string): Promise<string> 
 
 async function executeReadFile(path: string): Promise<string> {
   const state = useNoteStore.getState();
-  const { isSimulated, simulatedFiles, fileTree } = state;
+  const { isSimulated, simulatedFiles, rootHandle } = state;
 
   if (isSimulated) {
     const file = simulatedFiles.find((f) => f.path === path);
@@ -198,15 +216,23 @@ async function executeReadFile(path: string): Promise<string> {
     return file.content || '(empty file)';
   }
 
-  const node = findFileNode(fileTree, path);
-  if (!node) return `Error: File "${path}" not found in workspace.`;
+  if (!rootHandle) return 'Error: No root folder open.';
 
   try {
-    const file = await (node.handle as FileSystemFileHandle).getFile();
-    const text = await file.text();
-    return text;
-  } catch {
-    return `Error: Could not read "${path}".`;
+    const parts = path.split('/');
+    const fileName = parts.pop();
+    if (!fileName) return `Error: Invalid path "${path}".`;
+
+    let dirHandle = rootHandle;
+    for (const part of parts) {
+      dirHandle = await dirHandle.getDirectoryHandle(part);
+    }
+
+    const fileHandle = await dirHandle.getFileHandle(fileName);
+    const file = await fileHandle.getFile();
+    return await file.text();
+  } catch (e: any) {
+    return `Error: Could not read "${path}": ${e.message}`;
   }
 }
 
@@ -256,16 +282,17 @@ const MAX_TOOL_ROUNDS = 3;
 const STORAGE_KEY_API_KEY = 'noted_go_api_key';
 const STORAGE_KEY_MESSAGES = 'noted_chat_messages';
 const STORAGE_KEY_MODEL = 'noted_chat_model';
-const STORAGE_KEY_MODE = 'noted_chat_mode';
 
 export const useChatStore = create<ChatState>((set, get) => ({
   apiKey: loadFromStorage<string | null>(STORAGE_KEY_API_KEY, null),
-  messages: loadFromStorage<Message[]>(STORAGE_KEY_MESSAGES, []),
+  messages: loadFromStorage<Message[]>(STORAGE_KEY_MESSAGES, []).map((m) => ({
+    ...m,
+    content: m.content ? stripSystemReminder(m.content) : m.content,
+  })),
   model: loadFromStorage<string>(STORAGE_KEY_MODEL, 'deepseek-v4-flash'),
   availableModels: [],
   isLoading: false,
   chatError: null,
-  mode: loadFromStorage<'plan' | 'build'>(STORAGE_KEY_MODE, 'build'),
   lastUsage: null,
 
   setApiKey: (key: string) => {
@@ -294,6 +321,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
+    await waitForRestore();
     const { apiKey, model, messages } = get();
     if (!apiKey) return;
 
@@ -302,12 +330,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ messages: currentMessages, isLoading: true, chatError: null, lastUsage: null });
     saveToStorage(STORAGE_KEY_MESSAGES, currentMessages);
 
-    const context = await buildWorkspaceContext(get().mode);
+    const context = await buildWorkspaceContext();
     const systemMsg: Message = { role: 'system', content: context };
 
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-        const shouldUseTools = round === 0 && get().mode === 'build';
         const apiMessages = [systemMsg, ...currentMessages];
 
         const res = await fetch('/api/opencode/chat/completions', {
@@ -324,7 +351,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               tool_calls: m.tool_calls,
               tool_call_id: m.tool_call_id,
             })),
-            tools: shouldUseTools ? [READ_FILE_TOOL, WRITE_FILE_TOOL] : undefined,
+            tools: [READ_FILE_TOOL, WRITE_FILE_TOOL],
             stream: true,
           }),
         });
@@ -360,21 +387,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
               break;
             }
 
+            const cleanedData = data.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '');
+            if (!cleanedData.trim()) continue;
+
             try {
-              const parsed = JSON.parse(data);
+              const parsed = JSON.parse(cleanedData);
               const choice = parsed.choices?.[0];
               if (!choice) continue;
               const delta = choice.delta;
-
               if (delta?.content) {
                 assistantContent += delta.content;
+                const cleaned = stripSystemReminder(assistantContent);
                 const msgs = get().messages;
                 const lastMsg = msgs[msgs.length - 1];
                 if (lastMsg?.role === 'assistant' && lastMsg.content !== null) {
-                  msgs[msgs.length - 1] = { ...lastMsg, content: lastMsg.content + delta.content };
+                  msgs[msgs.length - 1] = { ...lastMsg, content: cleaned };
                   set({ messages: [...msgs] });
                 } else {
-                  set({ messages: [...get().messages, { role: 'assistant', content: delta.content }] });
+                  set({ messages: [...get().messages, { role: 'assistant', content: cleaned }] });
                 }
               }
 
@@ -434,7 +464,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // Continue to next round
         } else {
           if (assistantContent) {
-            currentMessages = [...currentMessages, { role: 'assistant', content: assistantContent }];
+            currentMessages = [...currentMessages, { role: 'assistant', content: stripSystemReminder(assistantContent) }];
           }
           set({ messages: currentMessages, isLoading: false });
           saveToStorage(STORAGE_KEY_MESSAGES, currentMessages);
@@ -454,11 +484,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     saveToStorage(STORAGE_KEY_MODEL, model);
   },
 
-  setMode: (mode: 'plan' | 'build') => {
-    set({ mode });
-    saveToStorage(STORAGE_KEY_MODE, mode);
-  },
-
   clearChat: () => {
     set({ messages: [], chatError: null, lastUsage: null });
     saveToStorage(STORAGE_KEY_MESSAGES, []);
@@ -470,3 +495,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     saveToStorage(STORAGE_KEY_MESSAGES, []);
   },
 }));
+
+async function waitForRestore() {
+  while (useNoteStore.getState().isRestoring) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+useChatStore.subscribe((state) => {
+  const stripped = state.messages.map((m) => {
+    const content = m.content ? stripSystemReminder(m.content) : m.content;
+    return content !== m.content ? { ...m, content } : m;
+  });
+  if (stripped.some((m, i) => m.content !== state.messages[i]?.content)) {
+    useChatStore.setState({ messages: stripped });
+  }
+});

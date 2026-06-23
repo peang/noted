@@ -91,6 +91,8 @@ interface NoteState {
   rightSidebarTab: 'documents' | 'chat';
   rightSidebarWidth: number;
   theme: 'light' | 'dark';
+  workspacePaths: string[];
+  workspaceCounts: { files: number; folders: number };
 
   // Actions
   setShowSandboxModal: (show: boolean) => void;
@@ -337,6 +339,31 @@ export async function getFilesRecursively(
   });
 }
 
+export async function scanAllFiles(
+  dirHandle: FileSystemDirectoryHandle,
+  parentPath = '',
+  depth = 0,
+  maxDepth = 4
+): Promise<string[]> {
+  const paths: string[] = [];
+  try {
+    for await (const entry of (dirHandle as any).values()) {
+      const fullPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+      if (entry.kind === 'file') {
+        if (depth <= maxDepth) paths.push(fullPath);
+      } else {
+        paths.push(fullPath + '/');
+        if (depth < maxDepth) {
+          paths.push(...await scanAllFiles(entry, fullPath, depth + 1, maxDepth));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('scanAllFiles error at', parentPath, err);
+  }
+  return paths.sort();
+}
+
 // Build helper for simulated directory sorting and node construction
 export function buildTreeFromPaths(
   simulatedFiles: SimulatedFile[],
@@ -455,6 +482,8 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   rightSidebarTab: 'chat',
   rightSidebarWidth: 600,
   theme: getInitialTheme(),
+  workspacePaths: [],
+  workspaceCounts: { files: 0, folders: 0 },
 
   setShowSandboxModal: (show: boolean) => set({ showSandboxModal: show }),
   setRightSidebarOpen: (open: boolean) => set({ rightSidebarOpen: open }),
@@ -531,11 +560,20 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         activeContent: null
       });
       console.log('[picker] step 5 - state set, building tree');
+      set({ isRestoring: true });
 
       const { collapsedFolders, searchQuery } = get();
-      const tree = await getFilesRecursively(handle, "", collapsedFolders);
+      const [tree, paths] = await Promise.all([
+        getFilesRecursively(handle, "", collapsedFolders),
+        scanAllFiles(handle),
+      ]);
       console.log('[picker] step 6 - tree built:', tree.length, 'nodes');
-      set({ fileTree: filterRealFileTree(tree, searchQuery) });
+      set({
+        fileTree: filterRealFileTree(tree, searchQuery),
+        workspacePaths: paths,
+        workspaceCounts: { files: paths.filter(p => !p.endsWith('/')).length, folders: paths.filter(p => p.endsWith('/')).length },
+        isRestoring: false,
+      });
       console.log('[picker] step 7 - DONE');
     } catch (err: any) {
       console.error('[picker] ERROR at step:', err);
@@ -1040,8 +1078,16 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       } catch {}
 
       const { collapsedFolders, searchQuery } = get();
-      const tree = await getFilesRecursively(handle, "", collapsedFolders);
-      set({ fileTree: filterRealFileTree(tree, searchQuery), isRestoring: false });
+      const [tree, paths] = await Promise.all([
+        getFilesRecursively(handle, "", collapsedFolders),
+        scanAllFiles(handle),
+      ]);
+      set({
+        fileTree: filterRealFileTree(tree, searchQuery),
+        workspacePaths: paths,
+        workspaceCounts: { files: paths.filter(p => !p.endsWith('/')).length, folders: paths.filter(p => p.endsWith('/')).length },
+        isRestoring: false,
+      });
     } catch {
       await deleteRootHandle().catch(() => {});
       set({ isRestoring: false });
@@ -1055,8 +1101,15 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       return;
     }
     if (!rootHandle) return;
-    const tree = await getFilesRecursively(rootHandle, "", collapsedFolders);
-    set({ fileTree: filterRealFileTree(tree, searchQuery) });
+    const [tree, paths] = await Promise.all([
+      getFilesRecursively(rootHandle, "", collapsedFolders),
+      scanAllFiles(rootHandle),
+    ]);
+    set({
+      fileTree: filterRealFileTree(tree, searchQuery),
+      workspacePaths: paths,
+      workspaceCounts: { files: paths.filter(p => !p.endsWith('/')).length, folders: paths.filter(p => p.endsWith('/')).length },
+    });
   }
 }));
 
