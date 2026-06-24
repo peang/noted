@@ -342,10 +342,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ messages: currentMessages, isLoading: true, chatError: null, lastUsage: null });
     saveToStorage(STORAGE_KEY_MESSAGES, currentMessages);
 
-    const context = await buildWorkspaceContext();
-    const systemMsg: Message = { role: 'system', content: context };
-
     try {
+      const context = await buildWorkspaceContext();
+      const systemMsg: Message = { role: 'system', content: context };
+
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const apiMessages = [systemMsg, ...currentMessages];
 
@@ -513,8 +513,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 }));
 
 async function waitForRestore() {
-  while (useNoteStore.getState().isRestoring) {
+  let waited = 0;
+  while (useNoteStore.getState().isRestoring && waited < 100) {
     await new Promise((r) => setTimeout(r, 100));
+    waited++;
   }
 }
 
