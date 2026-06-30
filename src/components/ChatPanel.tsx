@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore, Message } from '../store/chatStore';
 import { useNoteStore } from '../store/noteStore';
 import { toast } from 'sonner';
-import { Send, Key, ExternalLink, Trash2, Sparkles, Loader2, FileText, Folder } from 'lucide-react';
+import { Send, Key, ExternalLink, Trash2, Sparkles, Loader2, FileText, Folder, FileEdit, Check, X } from 'lucide-react';
 
 function stripSystemReminder(text: string): string {
   const idx = text.indexOf('<system-reminder>');
@@ -162,11 +162,14 @@ function ChatView() {
   const activeTab = useNoteStore((s) => s.activeTab);
   const workspaceCounts = useNoteStore((s) => s.workspaceCounts);
 
+  const pendingWrite = useChatStore((s) => s.pendingWrite);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const setModel = useChatStore((s) => s.setModel);
   const lastUsage = useChatStore((s) => s.lastUsage);
   const clearChat = useChatStore((s) => s.clearChat);
   const clearApiKey = useChatStore((s) => s.clearApiKey);
+  const approveWrite = useChatStore((s) => s.approveWrite);
+  const rejectWrite = useChatStore((s) => s.rejectWrite);
 
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
@@ -297,6 +300,38 @@ function ChatView() {
           </div>
         )}
       </div>
+
+      {/* Pending write confirmation */}
+      {pendingWrite && (
+        <div className="mx-3 my-2 p-3 bg-yellow-950/40 border border-yellow-700/50 rounded-lg">
+          <div className="flex items-start gap-2">
+            <FileEdit className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-yellow-300 mb-1">AI wants to edit a file</p>
+              <p className="text-[10px] text-yellow-400/80 font-mono mb-2 truncate">{pendingWrite.path}</p>
+              <pre className="text-[10px] text-yellow-200/70 bg-black/30 rounded p-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-all mb-3">
+                {pendingWrite.content.length > 600
+                  ? pendingWrite.content.slice(0, 600) + '...'
+                  : pendingWrite.content}
+              </pre>
+              <div className="flex gap-2">
+                <button
+                  onClick={approveWrite}
+                  className="flex items-center gap-1 px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-semibold cursor-pointer transition-colors"
+                >
+                  <Check className="w-3 h-3" /> Approve
+                </button>
+                <button
+                  onClick={rejectWrite}
+                  className="flex items-center gap-1 px-3 py-1 bg-red-800/60 hover:bg-red-700 text-red-300 rounded text-[10px] font-semibold cursor-pointer transition-colors"
+                >
+                  <X className="w-3 h-3" /> Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Token usage + Input */}
       {/* Input */}

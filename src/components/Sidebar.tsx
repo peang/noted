@@ -42,6 +42,8 @@ export default function Sidebar() {
   const searchQuery = useNoteStore((state) => state.searchQuery);
   const setSearchQuery = useNoteStore((state) => state.setSearchQuery);
   const workspaceCounts = useNoteStore((state) => state.workspaceCounts);
+  const isRestoring = useNoteStore((state) => state.isRestoring);
+  const restoreError = useNoteStore((state) => state.restoreError);
 
   // UI Inline actions state
   // path being edited or parentPath where we are adding a child
@@ -336,7 +338,12 @@ export default function Sidebar() {
       <div className="p-4 border-b border-theme-border bg-theme-sidebar-header space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 text-[11px] font-mono text-theme-muted">
-            {isSimulated ? (
+            {isRestoring ? (
+              <div className="flex items-center gap-1.5 text-yellow-500 font-medium text-[11px]">
+                <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></div>
+                <span>Restoring folder...</span>
+              </div>
+            ) : isSimulated ? (
               <div className="flex items-center gap-1.5 text-theme-muted font-medium text-[11px]">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
                 <span>Simulated Sandbox</span>
@@ -361,9 +368,10 @@ export default function Sidebar() {
 
         <button
           onClick={handleOpenFolder}
-          className="w-full bg-theme-active hover:bg-theme-hover hover:text-theme-white text-theme-muted border border-theme-border rounded px-3 py-1.5 flex items-center justify-center gap-2 text-xs font-semibold select-none cursor-pointer duration-100 transition-all text-center"
+          disabled={isRestoring}
+          className="w-full bg-theme-active hover:bg-theme-hover hover:text-theme-white text-theme-muted border border-theme-border rounded px-3 py-1.5 flex items-center justify-center gap-2 text-xs font-semibold select-none cursor-pointer duration-100 transition-all text-center disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <span className="truncate">{isSimulated ? "Open Folder" : "Change Folder"}</span>
+          <span className="truncate">{isRestoring ? "Restoring..." : isSimulated ? "Open Folder" : "Change Folder"}</span>
         </button>
 
         <div className="text-[10px] text-theme-darker font-mono flex items-center gap-1 truncate select-none leading-none">
@@ -466,12 +474,14 @@ export default function Sidebar() {
       </div>
 
       {/* Toast messages */}
-      {errorToast && (
+      {(errorToast || restoreError) && (
         <div className="mx-3 my-2 p-2.5 bg-red-950/60 border border-red-900 text-red-300 rounded text-[11px] shadow-lg leading-normal flex items-start gap-1.5">
           <HelpCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
           <div className="flex-1">
-            <span className="font-semibold block font-sans text-xs">Directory Pick Error</span>
-            <span className="text-[10px]">{errorToast}</span>
+            <span className="font-semibold block font-sans text-xs">
+              {errorToast ? "Directory Pick Error" : "Folder Access"}
+            </span>
+            <span className="text-[10px]">{errorToast || restoreError}</span>
           </div>
         </div>
       )}

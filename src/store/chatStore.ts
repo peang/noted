@@ -17,6 +17,7 @@ interface ChatState {
   chatError: string | null;
   lastUsage: { prompt: number; completion: number; reasoning: number } | null;
   aiStatus: string | null;
+  pendingWrite: { path: string; content: string } | null;
 
   setApiKey: (key: string) => void;
   clearApiKey: () => void;
@@ -24,6 +25,8 @@ interface ChatState {
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
   clearChat: () => void;
+  approveWrite: () => void;
+  rejectWrite: () => void;
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -294,6 +297,8 @@ const STORAGE_KEY_API_KEY = 'noted_go_api_key';
 const STORAGE_KEY_MESSAGES = 'noted_chat_messages';
 const STORAGE_KEY_MODEL = 'noted_chat_model';
 
+let writeResolver: ((approved: boolean) => void) | null = null;
+
 export const useChatStore = create<ChatState>((set, get) => ({
   apiKey: loadFromStorage<string | null>(STORAGE_KEY_API_KEY, null),
   messages: loadFromStorage<Message[]>(STORAGE_KEY_MESSAGES, []).map((m) => ({
@@ -306,6 +311,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   chatError: null,
   lastUsage: null,
   aiStatus: null,
+  pendingWrite: null,
 
   setApiKey: (key: string) => {
     set({ apiKey: key, chatError: null });
@@ -464,9 +470,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 result = await executeReadFile(args.path);
                 set({ aiStatus: null });
               } else if (tc.function.name === 'write_file') {
-                set({ aiStatus: `✏️ Writing ${args.path}...` });
-                result = await executeWriteFile(args.path, args.content);
-                set({ aiStatus: null });
+                set({
+                  pendingWrite: { path: args.path, content: args.content },
+                  isLoading: false,
+                  aiStatus: null,
+                });
+                const approved = await new Promise<boolean>((resolve) => {
+                  writeResolver = resolve;
+                });
+                if (approved) {
+                  set({ aiStatus: `✏️ Writing ${args.path}...` });
+                  result = await executeWriteFile(args.path, args.content);
+                  set({ aiStatus: null, pendingWrite: null });
+                } else {
+                  result = "The user rejected this write. Tell the user you will not make changes without their approval.";
+                  set({ pendingWrite: null });
+                }
               } else {
                 result = `Error: Unknown tool "${tc.function.name}"`;
               }
@@ -509,6 +528,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ apiKey: null, messages: [], availableModels: [], chatError: null, lastUsage: null });
     saveToStorage(STORAGE_KEY_API_KEY, null);
     saveToStorage(STORAGE_KEY_MESSAGES, []);
+  },
+
+  approveWrite: () => {
+    if (writeResolver) {
+      writeResolver(true);
+      writeResolver = null;
+    }
+  },
+
+  rejectWrite: () => {
+    if (writeResolver) {
+      writeResolver(false);
+      writeResolver = null;
+    }
   },
 }));
 

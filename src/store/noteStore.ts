@@ -61,6 +61,19 @@ export interface SimulatedFile {
   content?: string;
 }
 
+export function validateName(name: string, context: string): void {
+  if (!name || name.trim() === '') throw new Error(`${context} name cannot be empty`);
+  if (name.includes('/') || name.includes('\\')) throw new Error(`${context} name cannot contain / or \\`);
+  if (name === '.' || name === '..') throw new Error(`${context} name cannot be . or ..`);
+  if (name.includes('\0')) throw new Error(`${context} name contains invalid characters`);
+}
+
+function validateParentPath(path: string | null): void {
+  if (!path) return;
+  const segments = path.split('/');
+  if (segments.some(s => s === '..')) throw new Error("Invalid path: cannot contain ..");
+}
+
 export function getFileType(path: string): 'markdown' | 'text' | 'pdf' | 'doc' | 'binary' {
   const ext = path.toLowerCase().split('.').pop() || '';
   if (ext === 'md') return 'markdown';
@@ -87,6 +100,7 @@ interface NoteState {
   searchQuery: string;
   collapsedFolders: Record<string, boolean>; // path -> collapsed state
   showSandboxModal: boolean;
+  restoreError: string | null;
   rightSidebarOpen: boolean;
   rightSidebarTab: 'documents' | 'chat';
   rightSidebarWidth: number;
@@ -478,6 +492,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   searchQuery: "",
   collapsedFolders: getInitialCollapsedFolders(),
   showSandboxModal: false,
+  restoreError: null,
   rightSidebarOpen: true,
   rightSidebarTab: 'chat',
   rightSidebarWidth: 600,
@@ -555,6 +570,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         rootHandle: handle,
         folderName: handle.name,
         isSimulated: false,
+        restoreError: null,
         openTabs: [],
         activeTab: null,
         activeContent: null
@@ -584,6 +600,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         errText.includes("cross origin") || 
         errText.includes("securityerror") || 
         errText.includes("allowed to show a file picker") ||
+        errText.includes("timed out") ||
         err?.name === "SecurityError";
 
       if (isSandboxException) {
@@ -597,6 +614,8 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
 
   createFile: async (parentPath: string | null, name: string) => {
+    validateParentPath(parentPath);
+    validateName(name, 'File');
     const { isSimulated, rootHandle, simulatedFiles, collapsedFolders, searchQuery } = get();
     const cleanName = name.includes('.') ? name : `${name}.md`;
     const targetPath = parentPath ? `${parentPath}/${cleanName}` : cleanName;
@@ -661,6 +680,8 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
 
   createFolder: async (parentPath: string | null, name: string) => {
+    validateParentPath(parentPath);
+    validateName(name, 'Folder');
     const { isSimulated, rootHandle, simulatedFiles, collapsedFolders, searchQuery } = get();
     const targetPath = parentPath ? `${parentPath}/${name}` : name;
 
@@ -694,6 +715,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
 
   renameNode: async (oldPath: string, newName: string) => {
+    validateName(newName, 'Name');
     const { isSimulated, rootHandle, simulatedFiles, openTabs, activeTab, collapsedFolders, searchQuery } = get();
     const oldParts = oldPath.split('/');
     const currentName = oldParts[oldParts.length - 1];
@@ -1027,6 +1049,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       isSimulated: true,
       rootHandle: null,
       folderName: "Local Sandboxed Folder",
+      restoreError: null,
       openTabs: [],
       activeTab: null,
       activeContent: null,
@@ -1037,11 +1060,11 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
 
   restoreRootHandle: async () => {
-    set({ isRestoring: true });
+    set({ isRestoring: true, restoreError: null });
     try {
       const handle = await loadRootHandle();
       if (!handle) {
-        set({ isRestoring: false });
+        set({ isRestoring: false, restoreError: "No saved folder found. Click 'Open Folder' to select one." });
         return;
       }
 
@@ -1062,7 +1085,10 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       }
       if (permission !== 'granted') {
         await deleteRootHandle();
-        set({ isRestoring: false });
+        set({
+          isRestoring: false,
+          restoreError: "Permission to access folder was denied. Click 'Open Folder' to select it again.",
+        });
         return;
       }
 
@@ -1070,6 +1096,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         rootHandle: handle,
         folderName: handle.name,
         isSimulated: false,
+        restoreError: null,
       });
 
       try {
@@ -1087,10 +1114,14 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         workspacePaths: paths,
         workspaceCounts: { files: paths.filter(p => !p.endsWith('/')).length, folders: paths.filter(p => p.endsWith('/')).length },
         isRestoring: false,
+        restoreError: null,
       });
     } catch {
       await deleteRootHandle().catch(() => {});
-      set({ isRestoring: false });
+      set({
+        isRestoring: false,
+        restoreError: "Could not restore folder — it may have been moved or deleted. Click 'Open Folder' to re-select.",
+      });
     }
   },
 
