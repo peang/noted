@@ -31,6 +31,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
   const [isLoading, setIsLoading] = useState(true);
   const lastSavedRef = useRef<string | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const genRef = useRef(0);
 
   // Schema with Shiki syntax highlighting for code blocks
   const schema = useMemo(() => BlockNoteSchema.create({
@@ -201,8 +202,10 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
   // Handle changes with 500ms debounce to save to Zustand store
   const handleEditorChange = async () => {
     if (isLoading) return;
+    const gen = ++genRef.current;
     try {
       const markdown = await editor.blocksToMarkdownLossy(editor.document);
+      if (gen !== genRef.current) return; // stale async result
       
       if (markdown !== lastSavedRef.current) {
         lastSavedRef.current = markdown;
@@ -211,8 +214,10 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
           clearTimeout(saveTimeoutRef.current);
         }
 
+        const savedMarkdown = markdown;
         saveTimeoutRef.current = setTimeout(async () => {
-          await saveActiveFile(markdown);
+          if (savedMarkdown !== lastSavedRef.current) return; // stale save
+          await saveActiveFile(savedMarkdown);
         }, 500);
       }
     } catch (err) {
