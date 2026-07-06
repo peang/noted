@@ -107,7 +107,7 @@ export default function App() {
     if (!el) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.max(180, Math.min(600, startWidth + startX - e.clientX));
+      const newWidth = Math.max(180, startWidth + startX - e.clientX);
       el.style.width = newWidth + 'px';
     };
 
