@@ -259,7 +259,7 @@ export default function Sidebar() {
             {/* Action Buttons (Hidden by default, hover triggers visible) */}
             {!isBeingRenamed && (
               <div
-                className="hidden group-hover:flex items-center gap-1 ml-2 text-theme-darker shrink-0"
+                className="opacity-0 group-hover:opacity-100 flex items-center gap-1 ml-2 text-theme-darker shrink-0 transition-opacity duration-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Folders support Adding nested Files or folders */}
@@ -422,16 +422,14 @@ export default function Sidebar() {
           <span className="truncate">{isRestoring ? "Restoring..." : isSimulated ? "Open Folder" : "Change Folder"}</span>
         </button>
 
-        <div className="text-[10px] text-theme-darker font-mono flex items-center gap-1 truncate select-none leading-none">
+        <div className="text-[10px] text-theme-darker font-mono flex items-center gap-1.5 truncate select-none leading-none">
           <span>Active:</span>
           <span className="text-theme-muted truncate max-w-[140px]" title={folderName}>
             {folderName}
           </span>
-        </div>
-
-        <div className="flex flex-col min-w-0">
-          <span className="text-[10px] font-mono text-theme-muted truncate">
-            {isSimulated ? "Sandbox Memory" : `${workspaceCounts.files} files, ${workspaceCounts.folders} folders`}
+          <span className="text-theme-darker">·</span>
+          <span className="text-theme-darker truncate shrink-0">
+            {isSimulated ? "Sandbox" : `${workspaceCounts.files} files, ${workspaceCounts.folders} folders`}
           </span>
         </div>
       </div>
@@ -488,7 +486,7 @@ export default function Sidebar() {
       </div>
 
       {/* File Tree View */}
-      <div className="flex-1 overflow-y-auto px-2 py-2 thin-scrollbar space-y-1 select-none">
+      <div className="flex-1 overflow-y-auto px-2 py-2 thin-scrollbar space-y-1 select-none" style={{ contain: 'strict' }}>
         {addingChildState && addingChildState.parentPath === null && (
           <div className="flex items-center gap-2 py-1 px-2.5 mb-1" onClick={(e) => e.stopPropagation()}>
             {addingChildState.type === 'file' ? (

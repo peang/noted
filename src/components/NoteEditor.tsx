@@ -7,7 +7,7 @@ import {
   getDefaultReactEmojiPickerItems,
 } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
-import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs } from '@blocknote/core';
+import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core';
 import { useNoteStore, getFileType } from '../store/noteStore';
 import { Loader2, Check } from 'lucide-react';
 import CodeLanguagePicker from './CodeLanguagePicker';
@@ -16,6 +16,7 @@ import DocumentViewer from './DocumentViewer';
 import '@blocknote/mantine/style.css';
 
 const SAVE_INTERVAL = 3000;
+const blocksCache = new Map<string, any[]>();
 
 interface NoteEditorProps {
   filePath: string;
@@ -23,8 +24,8 @@ interface NoteEditorProps {
 
 export default function NoteEditor({ filePath }: NoteEditorProps) {
   const activeContent = useNoteStore((state) => state.activeContent);
+  const activeFileObject = useNoteStore((state) => state.activeFileObject);
   const saveActiveFile = useNoteStore((state) => state.saveActiveFile);
-  const isSaving = useNoteStore((state) => state.isSaving);
   const rightSidebarOpen = useNoteStore((state) => state.rightSidebarOpen);
   const setRightSidebarOpen = useNoteStore((state) => state.setRightSidebarOpen);
   const theme = useNoteStore((state) => state.theme);
@@ -35,53 +36,11 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
   const pendingSaveRef = useRef(false);
   const mountedRef = useRef(false);
 
-  // Schema with Shiki syntax highlighting for code blocks
   const schema = useMemo(() => BlockNoteSchema.create({
-    blockSpecs: {
-      ...defaultBlockSpecs,
-      codeBlock: createCodeBlockSpec({
-        defaultLanguage: 'javascript',
-        createHighlighter: () =>
-          import('shiki').then((m: any) => {
-            const hl = m.createHighlighter({
-              themes: ['github-dark'],
-              langs: ['javascript', 'typescript', 'json', 'bash', 'markdown', 'text'],
-            });
-            hl.catch((err: any) => console.error('[Shiki] highlighter creation failed:', err));
-            return hl;
-          }),
-        supportedLanguages: {
-          javascript: { name: 'JavaScript' },
-          typescript: { name: 'TypeScript' },
-          tsx: { name: 'TSX' },
-          jsx: { name: 'JSX' },
-          json: { name: 'JSON' },
-          yaml: { name: 'YAML' },
-          html: { name: 'HTML' },
-          css: { name: 'CSS' },
-          scss: { name: 'SCSS' },
-          python: { name: 'Python' },
-          rust: { name: 'Rust' },
-          go: { name: 'Go' },
-          bash: { name: 'Bash' },
-          shell: { name: 'Shell' },
-          sql: { name: 'SQL' },
-          markdown: { name: 'Markdown' },
-          text: { name: 'Plain Text' },
-        },
-      } as any),
-    },
+    blockSpecs: defaultBlockSpecs as any,
   }), []);
 
   const editor = useCreateBlockNote({ schema });
-
-  const triggerHighlightRefresh = useCallback(() => {
-    try {
-      (editor as any)._tiptapEditor?.view?.dispatch?.(
-        (editor as any)._tiptapEditor.state.tr.setMeta("prosemirror-highlight-refresh", true)
-      );
-    } catch {}
-  }, [editor]);
 
   const attachLangPicker = useCallback((container: HTMLElement, blockId: string, language: string) => {
     const select = container.querySelector<HTMLSelectElement>('.bn-block-content[data-content-type=codeBlock] > div > select');
@@ -105,7 +64,6 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
       if (block) {
         editor.updateBlock(blockId, { props: { language: newLang } } as any);
         select.value = newLang;
-        triggerHighlightRefresh();
       }
     };
 
@@ -176,7 +134,11 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
         const contentToLoad = state.activeContent || `# ${filePath.split('/').pop()?.replace(/\.md$/, '') || 'Untitled'}\n\n`;
         
         lastSavedRef.current = contentToLoad;
-        const blocks = await editor.tryParseMarkdownToBlocks(contentToLoad);
+        let blocks = blocksCache.get(contentToLoad);
+        if (!blocks) {
+          blocks = await editor.tryParseMarkdownToBlocks(contentToLoad);
+          blocksCache.set(contentToLoad, blocks);
+        }
         
         if (active) {
           editor.replaceBlocks(editor.document, blocks);
@@ -256,7 +218,10 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     };
   }, []);
 
-  // beforeunload — warn if unsaved content
+  useEffect(() => {
+    return () => { blocksCache.clear(); };
+  }, []);
+
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (dirtyRef.current) {
@@ -296,7 +261,12 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
 
     (async () => {
       try {
-        const blocks = await editor.tryParseMarkdownToBlocks(activeContent);
+        const content = activeContent;
+        let blocks = blocksCache.get(content);
+        if (!blocks) {
+          blocks = await editor.tryParseMarkdownToBlocks(content);
+          blocksCache.set(content, blocks);
+        }
         editor.replaceBlocks(editor.document, blocks);
 
         if (cursorPos) {
@@ -334,8 +304,60 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     return <PlaintextEditor filePath={filePath} />;
   }
 
-  if (fileType === 'pdf' || fileType === 'doc' || fileType === 'binary') {
+  if (fileType === 'pdf' || fileType === 'doc') {
     return <DocumentViewer filePath={filePath} />;
+  }
+
+  if (fileType === 'binary') {
+    const fileObj = activeFileObject;
+    const metaMatch = activeContent?.match(/^binary-file-metadata:(.+):(\d+):(.+):(\d+)$/);
+    const ext = filePath.split('.').pop()?.toUpperCase() || '';
+
+    return (
+      <div className="flex-1 flex flex-col bg-theme-bg h-full text-theme-text font-sans">
+        <div className="h-12 border-b border-theme-border px-6 flex items-center justify-between text-xs text-theme-muted select-none bg-theme-sidebar-header">
+          <div className="flex items-center gap-2">
+            <span className="font-mono bg-theme-active text-theme-darker px-2 py-0.5 rounded border border-theme-border text-[10px] tracking-wide uppercase">
+              {ext}
+            </span>
+            <span className="text-theme-darker font-mono select-none">/</span>
+            <span className="truncate font-medium text-theme-muted max-w-xs">{filePath}</span>
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8">
+          <div className="w-16 h-16 rounded-xl bg-theme-active border border-theme-border flex items-center justify-center text-2xl font-bold text-theme-darker">
+            {ext.slice(0, 2)}
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-theme-white">Unsupported file format</h2>
+            <p className="text-xs text-theme-muted mt-1 max-w-sm">
+              Noted doesn't have a built-in viewer for <strong className="text-theme-text">.{ext.toLowerCase()}</strong> files.
+            </p>
+          </div>
+          <div className="text-[11px] text-theme-darker font-mono space-y-1">
+            {metaMatch && (
+              <>
+                <div>Size: {(parseInt(metaMatch[2]) / 1024).toFixed(1)} KB</div>
+                <div>Type: {metaMatch[3] || 'Unknown'}</div>
+              </>
+            )}
+          </div>
+          {fileObj && (
+            <a
+              href={URL.createObjectURL(fileObj)}
+              download={fileObj.name}
+              className="mt-2 px-4 py-2 text-xs font-semibold rounded bg-theme-white text-theme-bg hover:opacity-90 transition-opacity cursor-pointer"
+              onClick={(e) => {
+                const link = e.currentTarget;
+                link.addEventListener('click', () => setTimeout(() => URL.revokeObjectURL(link.href), 1000), { once: true });
+              }}
+            >
+              Download file
+            </a>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -348,18 +370,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
           </span>
           <span className="text-theme-darker font-mono select-none">/</span>
           <span className="truncate font-medium text-theme-muted max-w-xs">{filePath}</span>
-
-          {isSaving ? (
-            <div className="flex items-center gap-1.5 text-theme-muted ml-1">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-theme-text" />
-              <span className="font-mono text-[11px]">Saving to disk...</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 text-emerald-500 bg-theme-input px-2.5 py-0.5 rounded border border-theme-border ml-1">
-              <Check className="w-3.5 h-3.5" />
-              <span className="font-mono text-[11px] font-medium">Auto-saved</span>
-            </div>
-          )}
+          <SaveStatus />
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -430,3 +441,18 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     </div>
   );
 }
+
+const SaveStatus = () => {
+  const isSaving = useNoteStore((s) => s.isSaving);
+  return isSaving ? (
+    <div className="flex items-center gap-1.5 text-theme-muted ml-1">
+      <Loader2 className="w-3.5 h-3.5 animate-spin text-theme-text" />
+      <span className="font-mono text-[11px]">Saving...</span>
+    </div>
+  ) : (
+    <div className="flex items-center gap-1.5 text-emerald-500 bg-theme-input px-2.5 py-0.5 rounded border border-theme-border ml-1">
+      <Check className="w-3.5 h-3.5" />
+      <span className="font-mono text-[11px] font-medium">Saved</span>
+    </div>
+  );
+};

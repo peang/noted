@@ -77,7 +77,7 @@ function validateParentPath(path: string | null): void {
 export function getFileType(path: string): 'markdown' | 'text' | 'pdf' | 'doc' | 'binary' {
   const ext = path.toLowerCase().split('.').pop() || '';
   if (ext === 'md') return 'markdown';
-  if (['txt', 'json', 'css', 'js', 'jsx', 'ts', 'tsx', 'html', 'xml', 'yaml', 'yml', 'ini', 'conf', 'log', 'csv'].includes(ext)) {
+  if (['txt', 'json', 'css', 'js', 'jsx', 'ts', 'tsx', 'html', 'xml', 'yaml', 'yml', 'ini', 'conf', 'log', 'csv', 'mmd', 'mermaid'].includes(ext)) {
     return 'text';
   }
   if (ext === 'pdf') return 'pdf';
@@ -1323,14 +1323,20 @@ export const useNoteStore = create<NoteState>((set, get) => ({
 }));
 
 // Subscribe to automatically persist states when mutated
+let persistScheduled = false;
 useNoteStore.subscribe((state) => {
-  localStorage.setItem('noted_open_tabs', JSON.stringify(state.openTabs));
-  localStorage.setItem('noted_active_tab', state.activeTab || '');
-  localStorage.setItem('noted_collapsed_folders', JSON.stringify(state.collapsedFolders));
-  localStorage.setItem('noted_theme', state.theme);
-  localStorage.setItem('noted_right_sidebar_width', String(state.rightSidebarWidth));
-  localStorage.setItem('noted_left_sidebar_width', String(state.leftSidebarWidth));
-  localStorage.setItem('noted_font_size', String(state.fontSize));
+  if (persistScheduled) return;
+  persistScheduled = true;
+  queueMicrotask(() => {
+    persistScheduled = false;
+    localStorage.setItem('noted_open_tabs', JSON.stringify(state.openTabs));
+    localStorage.setItem('noted_active_tab', state.activeTab || '');
+    localStorage.setItem('noted_collapsed_folders', JSON.stringify(state.collapsedFolders));
+    localStorage.setItem('noted_theme', state.theme);
+    localStorage.setItem('noted_right_sidebar_width', String(state.rightSidebarWidth));
+    localStorage.setItem('noted_left_sidebar_width', String(state.leftSidebarWidth));
+    localStorage.setItem('noted_font_size', String(state.fontSize));
+  });
 });
 
 // Apply initial font size to root

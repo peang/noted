@@ -194,10 +194,14 @@ export default function PlaintextEditor({ filePath }: PlaintextEditorProps) {
       {/* Editor Main Canvas with gutter line numbers */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Line Numbers column */}
-        <div className="py-4 select-none text-right pr-3 pl-4 bg-theme-bg border-r border-theme-border text-theme-darker text-[11px] leading-6 font-mono min-w-[3.5rem] scrollbar-hide overflow-hidden">
-          {Array.from({ length: Math.max(1, lineCount) }).map((_, i) => (
-            <div key={i}>{i + 1}</div>
-          ))}
+        <div className="py-4 select-none text-right pr-3 pl-4 bg-theme-bg border-r border-theme-border text-theme-darker text-[11px] leading-6 font-mono min-w-[3.5rem] overflow-hidden" style={{ contain: 'strict' }}>
+          {lineCount <= 2000 ? (
+            Array.from({ length: Math.max(1, lineCount) }).map((_, i) => (
+              <div key={i}>{i + 1}</div>
+            ))
+          ) : (
+            <span className="text-[9px] font-mono text-theme-darker">{lineCount} lines</span>
+          )}
         </div>
 
         {/* Text Area Input */}
