@@ -20,21 +20,38 @@ export default function PlaintextEditor({ filePath }: PlaintextEditorProps) {
   const [isLocalDirty, setIsLocalDirty] = useState(false);
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dirtyRef = useRef(false);
+  const textRef = useRef('');
 
   // Sync state with activeContent on load/filePath change
   useEffect(() => {
     setText(activeContent || '');
     setIsLocalDirty(false);
+    dirtyRef.current = false;
+  }, [activeContent, filePath]);
+
+  // Flush pending save on unmount
+  useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      if (dirtyRef.current) {
+        const content = textRef.current;
+        if (isSimulated) {
+          updateSimulatedFileContent(filePath, content);
+        } else {
+          saveActiveFile(content);
+        }
+      }
     };
-  }, [activeContent, filePath]);
+  }, []);
 
   // Handle changes with debounced auto-save
   const handleChange = (newVal: string) => {
     setText(newVal);
+    textRef.current = newVal;
+    dirtyRef.current = true;
     setIsLocalDirty(true);
 
     if (saveTimeoutRef.current) {
@@ -49,6 +66,7 @@ export default function PlaintextEditor({ filePath }: PlaintextEditorProps) {
           await saveActiveFile(newVal);
         }
         setIsLocalDirty(false);
+        dirtyRef.current = false;
       } catch (err) {
         console.error("Auto-save failed:", err);
       }

@@ -9,12 +9,13 @@ import {
 import { BlockNoteView } from '@blocknote/mantine';
 import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs } from '@blocknote/core';
 import { useNoteStore, getFileType } from '../store/noteStore';
-import { Loader2, Check, Columns } from 'lucide-react';
-import { createPortal } from 'react-dom';
-import CodeLanguagePicker, { getLanguageLabel } from './CodeLanguagePicker';
+import { Loader2, Check } from 'lucide-react';
+import CodeLanguagePicker from './CodeLanguagePicker';
 import PlaintextEditor from './PlaintextEditor';
 import DocumentViewer from './DocumentViewer';
 import '@blocknote/mantine/style.css';
+
+const SAVE_INTERVAL = 3000;
 
 interface NoteEditorProps {
   filePath: string;
@@ -30,8 +31,9 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
 
   const [isLoading, setIsLoading] = useState(true);
   const lastSavedRef = useRef<string | null>(null);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const genRef = useRef(0);
+  const dirtyRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const mountedRef = useRef(false);
 
   // Schema with Shiki syntax highlighting for code blocks
   const schema = useMemo(() => BlockNoteSchema.create({
@@ -71,11 +73,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     },
   }), []);
 
-  // Init BlockNote
   const editor = useCreateBlockNote({ schema });
-
-  // Inject searchable language pickers into code blocks
-  const pickerRootsRef = useRef<Map<Element, { root: any; cleanup: () => void }>>(new Map());
 
   const triggerHighlightRefresh = useCallback(() => {
     try {
@@ -90,15 +88,14 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     const codeBlock = container.querySelector<HTMLElement>('.bn-block-content[data-content-type=codeBlock]');
     if (!select || !codeBlock) return;
 
-    // Hide the original select visually
     select.style.opacity = '0';
     select.style.pointerEvents = 'none';
     select.style.position = 'absolute';
 
-    // Don't double-mount
     if (codeBlock.querySelector('.noted-lang-picker')) return;
 
     const mount = document.createElement('div');
+    mount.className = 'noted-lang-picker';
     mount.style.cssText = 'position:absolute;top:7px;left:12px;z-index:10;';
     codeBlock.style.position = codeBlock.style.position || 'relative';
     codeBlock.appendChild(mount);
@@ -108,7 +105,6 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
       if (block) {
         editor.updateBlock(blockId, { props: { language: newLang } } as any);
         select.value = newLang;
-        // Force prosemirror-highlight to re-parse
         triggerHighlightRefresh();
       }
     };
@@ -116,30 +112,44 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     import('react-dom/client').then(({ createRoot }) => {
       const root = createRoot(mount);
       root.render(<CodeLanguagePicker value={language} onChange={handleChange} />);
-      pickerRootsRef.current.set(mount, { root, cleanup: () => root.unmount() });
     });
   }, [editor]);
 
+  // MutationObserver for code language pickers — no polling
   useEffect(() => {
-    const interval = setInterval(() => {
-      const dom = editor.domElement;
-      if (!dom) return;
-      const codeBlocks = dom.querySelectorAll<HTMLElement>('.bn-block-content[data-content-type=codeBlock]');
-      codeBlocks.forEach((cb) => {
-        const blockOuter = cb.closest('[data-id]') as HTMLElement | null;
-        const blockId = blockOuter?.getAttribute('data-id');
-        const select = cb.querySelector<HTMLSelectElement>('div > select');
-        if (select && blockId && !cb.querySelector('.noted-lang-picker')) {
-          attachLangPicker(cb, blockId, select.value);
-        }
-      });
-    }, 500);
+    const dom = editor.domElement;
+    if (!dom) return;
 
-    return () => {
-      clearInterval(interval);
-      pickerRootsRef.current.forEach((v) => v.cleanup());
-      pickerRootsRef.current.clear();
+    const attachToCodeBlock = (cb: HTMLElement) => {
+      const blockOuter = cb.closest('[data-id]') as HTMLElement | null;
+      const blockId = blockOuter?.getAttribute('data-id');
+      const select = cb.querySelector<HTMLSelectElement>('div > select');
+      if (select && blockId && !cb.querySelector('.noted-lang-picker')) {
+        attachLangPicker(cb, blockId, select.value);
+      }
     };
+
+    dom.querySelectorAll<HTMLElement>('.bn-block-content[data-content-type=codeBlock]')
+      .forEach(attachToCodeBlock);
+
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node instanceof HTMLElement) {
+            if (node.matches?.('.bn-block-content[data-content-type=codeBlock]')) {
+              attachToCodeBlock(node);
+            } else if (node.querySelector?.('.bn-block-content[data-content-type=codeBlock]')) {
+              node.querySelectorAll<HTMLElement>('.bn-block-content[data-content-type=codeBlock]')
+                .forEach(attachToCodeBlock);
+            }
+          }
+        }
+      }
+    });
+
+    observer.observe(dom, { childList: true, subtree: true });
+
+    return () => observer.disconnect();
   }, [editor, attachLangPicker]);
 
   const fileType = getFileType(filePath);
@@ -153,7 +163,6 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     async function loadContent() {
       setIsLoading(true);
       try {
-        // Ensure activeContent is loaded
         if (!activeContent) {
           await useNoteStore.getState().openFile(filePath);
         }
@@ -172,6 +181,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
       } finally {
         if (active) {
           setIsLoading(false);
+          mountedRef.current = true;
         }
       }
     }
@@ -180,50 +190,138 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
 
     return () => {
       active = false;
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
     };
   }, [editor, filePath, fileType]);
 
-  // Reload editor when external write updates activeContent (AI write_file)
+  // Lightweight onChange — just mark dirty
+  const handleEditorChange = useCallback(() => {
+    if (isLoading) return;
+    dirtyRef.current = true;
+  }, [isLoading]);
+
+  // Perform actual save: convert blocks → markdown → persist
+  const performSave = useCallback(async () => {
+    if (isLoading || pendingSaveRef.current || !dirtyRef.current) return;
+
+    pendingSaveRef.current = true;
+    dirtyRef.current = false;
+
+    try {
+      const markdown = await editor.blocksToMarkdownLossy(editor.document);
+
+      // User typed during conversion — skip, next cycle catches up
+      if (dirtyRef.current) {
+        pendingSaveRef.current = false;
+        return;
+      }
+
+      if (markdown === lastSavedRef.current) {
+        pendingSaveRef.current = false;
+        return;
+      }
+
+      lastSavedRef.current = markdown;
+      await saveActiveFile(markdown);
+    } catch (err) {
+      console.error("Error saving:", err);
+      dirtyRef.current = true;
+    } finally {
+      pendingSaveRef.current = false;
+    }
+  }, [editor, isLoading, saveActiveFile]);
+
+  // 3s save interval
   useEffect(() => {
     if (fileType !== 'markdown') return;
+
+    const id = setInterval(performSave, SAVE_INTERVAL);
+    return () => clearInterval(id);
+  }, [fileType, performSave]);
+
+  // Save dirty content on unmount (tab switch)
+  const flushRef = useRef(performSave);
+  flushRef.current = performSave;
+
+  useEffect(() => {
+    return () => {
+      if (dirtyRef.current) {
+        flushRef.current();
+      }
+    };
+  }, []);
+
+  // beforeunload — warn if unsaved content
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
+  // Reload editor only for external content changes (AI write_file)
+  useEffect(() => {
+    if (fileType !== 'markdown') return;
+    if (!mountedRef.current) return;
     if (!activeContent || !lastSavedRef.current) return;
     if (activeContent === lastSavedRef.current) return;
 
     lastSavedRef.current = activeContent;
+
+    const cursorPos = (() => {
+      try {
+        const pm = (editor as any)._tiptapEditor;
+        if (!pm) return null;
+        const { from } = pm.state.selection;
+        let pos = 0;
+        for (let i = 0; i < pm.state.doc.childCount; i++) {
+          const child = pm.state.doc.child(i);
+          const size = child.nodeSize;
+          if (pos + size > from) {
+            return { blockIndex: i, offset: Math.max(0, from - pos - 1) };
+          }
+          pos += size;
+        }
+      } catch {}
+      return null;
+    })();
+
     (async () => {
-      const blocks = await editor.tryParseMarkdownToBlocks(activeContent);
-      editor.replaceBlocks(editor.document, blocks);
+      try {
+        const blocks = await editor.tryParseMarkdownToBlocks(activeContent);
+        editor.replaceBlocks(editor.document, blocks);
+
+        if (cursorPos) {
+          requestAnimationFrame(() => {
+            try {
+              const pm = (editor as any)._tiptapEditor;
+              if (!pm) return;
+              const { state, view } = pm;
+              let targetPos = 0;
+              for (let i = 0; i < state.doc.childCount && i <= cursorPos.blockIndex; i++) {
+                const child = state.doc.child(i);
+                if (i < cursorPos.blockIndex) {
+                  targetPos += child.nodeSize;
+                } else {
+                  const txtLen = child.textContent?.length || 0;
+                  const off = Math.min(cursorPos.offset, txtLen);
+                  const tr = state.tr.setSelection(
+                    new (state.selection.constructor as any)(targetPos + 1 + off, targetPos + 1 + off)
+                  );
+                  view.dispatch(tr);
+                  view.focus();
+                }
+              }
+            } catch {}
+          });
+        }
+      } catch (err) {
+        console.error("Failed to reload content:", err);
+      }
     })();
   }, [activeContent, fileType, editor]);
-
-  // Handle changes with 500ms debounce to save to Zustand store
-  const handleEditorChange = async () => {
-    if (isLoading) return;
-    const gen = ++genRef.current;
-    try {
-      const markdown = await editor.blocksToMarkdownLossy(editor.document);
-      if (gen !== genRef.current) return; // stale async result
-      
-      if (markdown !== lastSavedRef.current) {
-        lastSavedRef.current = markdown;
-
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-        }
-
-        const savedMarkdown = markdown;
-        saveTimeoutRef.current = setTimeout(async () => {
-          if (savedMarkdown !== lastSavedRef.current) return; // stale save
-          await saveActiveFile(savedMarkdown);
-        }, 500);
-      }
-    } catch (err) {
-      console.error("Error converting blocks to markdown", err);
-    }
-  };
 
   // Route non-markdown file types to specialized editors
   if (fileType === 'text') {
