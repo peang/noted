@@ -20,7 +20,8 @@ import {
   X,
   Sparkles,
   Sun,
-  Moon
+  Moon,
+  Minus
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -33,11 +34,14 @@ export default function Sidebar() {
   const createFile = useNoteStore((state) => state.createFile);
   const createFolder = useNoteStore((state) => state.createFolder);
   const renameNode = useNoteStore((state) => state.renameNode);
+  const moveNode = useNoteStore((state) => state.moveNode);
   const deleteNode = useNoteStore((state) => state.deleteNode);
   const toggleFolderCollapse = useNoteStore((state) => state.toggleFolderCollapse);
   const resetToSimulated = useNoteStore((state) => state.resetToSimulated);
   const theme = useNoteStore((state) => state.theme);
   const setTheme = useNoteStore((state) => state.setTheme);
+  const fontSize = useNoteStore((state) => state.fontSize);
+  const setFontSize = useNoteStore((state) => state.setFontSize);
   
   const searchQuery = useNoteStore((state) => state.searchQuery);
   const setSearchQuery = useNoteStore((state) => state.setSearchQuery);
@@ -135,12 +139,49 @@ export default function Sidebar() {
     setInlineInputVal('');
   };
 
+  const dragRef = useRef<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, path: string) => {
+    dragRef.current = path;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', path);
+  };
+
+  const handleDragOver = (e: React.DragEvent, path: string) => {
+    if (!dragRef.current || dragRef.current === path) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTarget(path);
+  };
+
+  const handleDragLeave = (e: React.DragEvent, path: string) => {
+    if (dropTarget === path) {
+      setDropTarget(null);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetPath: string) => {
+    e.preventDefault();
+    setDropTarget(null);
+    const draggedPath = dragRef.current;
+    dragRef.current = null;
+    if (!draggedPath || draggedPath === targetPath) return;
+
+    try {
+      await moveNode(draggedPath, targetPath);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to move item");
+    }
+  };
+
   // Render file tree recursively
   const renderTree = (nodes: FileNode[], depth = 0) => {
     return nodes.map((node) => {
       const isSelected = activeTab === node.path;
       const isFolder = node.kind === 'directory';
       const isBeingRenamed = renamingPath === node.path;
+      const isDragOver = dropTarget === node.path;
 
       // Check if we are currently adding a new child inside this specific folder
       const isAddingHere = addingChildState && addingChildState.parentPath === node.path;
@@ -149,10 +190,17 @@ export default function Sidebar() {
         <div key={node.path} className="flex flex-col">
           {/* Node Row */}
           <div
+            draggable={!isBeingRenamed}
+            onDragStart={(e) => handleDragStart(e, node.path)}
+            onDragOver={isFolder ? (e) => handleDragOver(e, node.path) : undefined}
+            onDragLeave={isFolder ? (e) => handleDragLeave(e, node.path) : undefined}
+            onDrop={isFolder ? (e) => handleDrop(e, node.path) : undefined}
             className={`group flex items-center justify-between px-2 py-1.5 text-xs rounded transition-all duration-150 cursor-pointer ${
               isSelected
                 ? 'bg-theme-active text-theme-white font-medium'
-                : 'text-theme-muted hover:bg-theme-active hover:text-theme-white'
+                : isDragOver
+                  ? 'bg-theme-hover text-theme-white ring-1 ring-theme-border-hover'
+                  : 'text-theme-muted hover:bg-theme-active hover:text-theme-white'
             }`}
             style={{ paddingLeft: `${Math.max(8, depth * 12)}px` }}
             onClick={() => {
@@ -321,10 +369,10 @@ export default function Sidebar() {
   const treeContent = useMemo(() => {
     if (fileTree.length === 0) return null;
     return renderTree(fileTree);
-  }, [fileTree, activeTab, renamingPath, addingChildState, inlineInputVal]);
+  }, [fileTree, activeTab, renamingPath, addingChildState, inlineInputVal, dropTarget]);
 
   return (
-    <div className="w-64 bg-theme-sidebar-bg border-r border-theme-border flex flex-col h-full shrink-0 select-text">
+    <div className="bg-theme-sidebar-bg border-r border-theme-border flex flex-col h-full shrink-0 select-text w-full">
       {/* Brand space */}
       <div className="h-12 border-b border-theme-border px-4 flex items-center justify-between bg-theme-sidebar-header">
         <div className="flex items-center gap-2.5">
@@ -335,7 +383,7 @@ export default function Sidebar() {
       </div>
 
       {/* Directory Launcher Box */}
-      <div className="p-4 border-b border-theme-border bg-theme-sidebar-header space-y-2.5">
+      <div className="p-3 border-b border-theme-border bg-theme-sidebar-header space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 text-[11px] font-mono text-theme-muted">
             {isRestoring ? (
@@ -359,7 +407,7 @@ export default function Sidebar() {
             <button
               onClick={resetToSimulated}
               title="Return to sandbox"
-              className="text-[10px] font-mono text-theme-darker hover:text-theme-muted flex items-center gap-0.5 cursor-pointer"
+              className="text-[10px] font-mono text-red-400 hover:text-red-300 flex items-center gap-0.5 cursor-pointer"
             >
               <X className="w-2.5 h-2.5" /> Disconnect
             </button>
@@ -378,6 +426,12 @@ export default function Sidebar() {
           <span>Active:</span>
           <span className="text-theme-muted truncate max-w-[140px]" title={folderName}>
             {folderName}
+          </span>
+        </div>
+
+        <div className="flex flex-col min-w-0">
+          <span className="text-[10px] font-mono text-theme-muted truncate">
+            {isSimulated ? "Sandbox Memory" : `${workspaceCounts.files} files, ${workspaceCounts.folders} folders`}
           </span>
         </div>
       </div>
@@ -487,16 +541,28 @@ export default function Sidebar() {
       )}
 
       {/* Sidebar Footer */}
-      <div className="mt-auto p-4 border-t border-theme-border bg-theme-sidebar-header flex items-center justify-between gap-2.5">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs font-semibold text-theme-white truncate" title={folderName}>
-              {folderName || "/notes"}
-            </span>
-            <span className="text-[10px] text-theme-muted truncate">
-              {isSimulated ? "Sandbox Memory" : `${workspaceCounts.files} files, ${workspaceCounts.folders} folders`}
-            </span>
-          </div>
+      <div className="mt-auto p-3 border-t border-theme-border bg-theme-sidebar-header flex items-center justify-between gap-2.5">
+        {/* Font size controls */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => setFontSize(fontSize - 1)}
+            disabled={fontSize <= 12}
+            title="Decrease font size"
+            className="p-1.5 rounded-md border border-theme-border bg-theme-active hover:bg-theme-hover text-theme-muted hover:text-theme-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors flex items-center justify-center"
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+          <span className="text-[10px] font-mono text-theme-darker w-5 text-center select-none">
+            {fontSize}
+          </span>
+          <button
+            onClick={() => setFontSize(fontSize + 1)}
+            disabled={fontSize >= 28}
+            title="Increase font size"
+            className="p-1.5 rounded-md border border-theme-border bg-theme-active hover:bg-theme-hover text-theme-muted hover:text-theme-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors flex items-center justify-center"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Theme select switch */}

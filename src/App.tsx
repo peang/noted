@@ -40,6 +40,9 @@ export default function App() {
   const setRightSidebarTab = useNoteStore((state) => state.setRightSidebarTab);
   const rightSidebarWidth = useNoteStore((state) => state.rightSidebarWidth);
   const setRightSidebarWidth = useNoteStore((state) => state.setRightSidebarWidth);
+  const leftSidebarWidth = useNoteStore((state) => state.leftSidebarWidth);
+  const setLeftSidebarWidth = useNoteStore((state) => state.setLeftSidebarWidth);
+  const fontSize = useNoteStore((state) => state.fontSize);
   const theme = useNoteStore((state) => state.theme);
   const workspacePaths = useNoteStore((state) => state.workspacePaths);
 
@@ -97,13 +100,38 @@ export default function App() {
     }
   };
 
-  const sidebarRef = useRef<HTMLDivElement>(null);
+  const rightSidebarRef = useRef<HTMLDivElement>(null);
+  const leftSidebarRef = useRef<HTMLDivElement>(null);
+
+  const handleLeftResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = leftSidebarWidth;
+    const el = leftSidebarRef.current;
+    if (!el) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.max(160, startWidth + e.clientX - startX);
+      el.style.width = newWidth + 'px';
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      if (leftSidebarRef.current) {
+        setLeftSidebarWidth(parseInt(leftSidebarRef.current.style.width));
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [leftSidebarWidth, setLeftSidebarWidth]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = rightSidebarWidth;
-    const el = sidebarRef.current;
+    const el = rightSidebarRef.current;
     if (!el) return;
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -114,8 +142,8 @@ export default function App() {
     const handleMouseUp = () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
-      if (sidebarRef.current) {
-        setRightSidebarWidth(parseInt(sidebarRef.current.style.width));
+      if (rightSidebarRef.current) {
+        setRightSidebarWidth(parseInt(rightSidebarRef.current.style.width));
       }
     };
 
@@ -126,14 +154,23 @@ export default function App() {
   return (
     <div data-theme={theme} className="flex h-screen w-screen bg-theme-sidebar-bg text-theme-text overflow-hidden font-sans">
       <Toaster position="top-center" richColors closeButton />
-      {/* Sidebar Navigation */}
-      <Sidebar />
+      {/* Left Sidebar Navigation */}
+      <div ref={leftSidebarRef} className="relative shrink-0" style={{ width: leftSidebarWidth }}>
+        <Sidebar />
+        {/* Resize handle on right edge */}
+        <div
+          className="absolute -right-1 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"
+          onMouseDown={handleLeftResizeStart}
+        >
+          <div className="w-0.5 h-8 rounded-full bg-theme-border group-hover:bg-theme-border-hover group-active:bg-theme-border-hover transition-colors" />
+        </div>
+      </div>
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-theme-bg relative">
         {/* Tab Content Canvas */}
         {activeTab ? (
-          <NoteEditor key={activeTab} filePath={activeTab} />
+          <NoteEditor filePath={activeTab} />
         ) : (
           /* Landing Page Launchpad empty state */
           <div className="flex-1 overflow-y-auto beauty-scrollbar bg-theme-bg px-8 py-16">
@@ -316,7 +353,7 @@ export default function App() {
 
       {/* Collapsible Right Sidebar — overlay mode (timpa editor) */}
       {rightSidebarOpen && (
-        <div ref={sidebarRef} className="fixed right-0 top-0 z-30 h-screen bg-theme-sidebar-bg border-l border-theme-border flex flex-col animate-fade-in shadow-2xl" style={{ width: rightSidebarWidth }}>
+        <div ref={rightSidebarRef} className="fixed right-0 top-0 z-30 h-screen bg-theme-sidebar-bg border-l border-theme-border flex flex-col animate-fade-in shadow-2xl" style={{ width: rightSidebarWidth }}>
           {/* Resize Handle */}
           <div
             className="absolute -left-1 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"

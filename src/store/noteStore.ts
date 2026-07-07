@@ -85,6 +85,10 @@ export function getFileType(path: string): 'markdown' | 'text' | 'pdf' | 'doc' |
   return 'binary';
 }
 
+function isHiddenPath(path: string): boolean {
+  return path.split('/').some(segment => segment.startsWith('.'));
+}
+
 interface NoteState {
   isSimulated: boolean;
   folderName: string;
@@ -104,6 +108,8 @@ interface NoteState {
   rightSidebarOpen: boolean;
   rightSidebarTab: 'documents' | 'chat';
   rightSidebarWidth: number;
+  leftSidebarWidth: number;
+  fontSize: number;
   theme: 'light' | 'dark';
   workspacePaths: string[];
   workspaceCounts: { files: number; folders: number };
@@ -113,12 +119,15 @@ interface NoteState {
   setRightSidebarOpen: (open: boolean) => void;
   setRightSidebarTab: (tab: 'documents' | 'chat') => void;
   setRightSidebarWidth: (width: number) => void;
+  setLeftSidebarWidth: (width: number) => void;
+  setFontSize: (size: number) => void;
   setSearchQuery: (query: string) => void;
   toggleFolderCollapse: (path: string) => void;
   openFolderPicker: () => Promise<void>;
   createFile: (parentPath: string | null, name: string) => Promise<void>;
   createFolder: (parentPath: string | null, name: string) => Promise<void>;
   renameNode: (oldPath: string, newName: string) => Promise<void>;
+  moveNode: (oldPath: string, newParentPath: string) => Promise<void>;
   deleteNode: (path: string) => Promise<void>;
   openFile: (path: string) => Promise<void>;
   saveActiveFile: (markdownContent: string) => Promise<void>;
@@ -267,7 +276,8 @@ const getInitialSimulatedFiles = (): SimulatedFile[] => {
   const saved = localStorage.getItem('noted_simulated_files');
   if (saved) {
     try {
-      return JSON.parse(saved);
+      const files: SimulatedFile[] = JSON.parse(saved);
+      return files.filter(f => !isHiddenPath(f.path));
     } catch {
       // Fallback
     }
@@ -308,6 +318,18 @@ const getInitialTheme = (): 'light' | 'dark' => {
   return (saved === 'light' || saved === 'dark') ? saved : 'dark';
 };
 
+const getInitialLeftSidebarWidth = (): number => {
+  const saved = localStorage.getItem('noted_left_sidebar_width');
+  const w = saved ? parseInt(saved, 10) : 256;
+  return Math.max(160, Math.min(400, w));
+};
+
+const getInitialFontSize = (): number => {
+  const saved = localStorage.getItem('noted_font_size');
+  const s = saved ? parseInt(saved, 10) : 16;
+  return Math.max(12, Math.min(28, s));
+};
+
 // Recursive helper to build tree from FileSystemDirectoryHandle (Real API)
 export async function getFilesRecursively(
   dirHandle: FileSystemDirectoryHandle,
@@ -317,6 +339,8 @@ export async function getFilesRecursively(
   const nodes: FileNode[] = [];
   try {
     for await (const entry of (dirHandle as any).values()) {
+      if (entry.name.startsWith('.')) continue;
+
       const relativePath = relativeParentPath
         ? `${relativeParentPath}/${entry.name}`
         : entry.name;
@@ -362,6 +386,7 @@ export async function scanAllFiles(
   const paths: string[] = [];
   try {
     for await (const entry of (dirHandle as any).values()) {
+      if (entry.name.startsWith('.')) continue;
       const fullPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
       if (entry.kind === 'file') {
         if (depth <= maxDepth) paths.push(fullPath);
@@ -406,6 +431,9 @@ export function buildTreeFromPaths(
     }
     filtered = simulatedFiles.filter(f => pathsToInclude.has(f.path));
   }
+
+  // Filter out hidden files/folders
+  filtered = filtered.filter(f => !isHiddenPath(f.path));
 
   // Sort files and build nested tree
   const sorted = [...filtered].sort((a, b) => {
@@ -496,6 +524,8 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   rightSidebarOpen: true,
   rightSidebarTab: 'chat',
   rightSidebarWidth: 600,
+  leftSidebarWidth: getInitialLeftSidebarWidth(),
+  fontSize: getInitialFontSize(),
   theme: getInitialTheme(),
   workspacePaths: [],
   workspaceCounts: { files: 0, folders: 0 },
@@ -504,6 +534,12 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   setRightSidebarOpen: (open: boolean) => set({ rightSidebarOpen: open }),
   setRightSidebarTab: (tab: 'documents' | 'chat') => set({ rightSidebarTab: tab }),
   setRightSidebarWidth: (width: number) => set({ rightSidebarWidth: width }),
+  setLeftSidebarWidth: (width: number) => set({ leftSidebarWidth: Math.max(160, Math.min(400, width)) }),
+  setFontSize: (size: number) => {
+    const clamped = Math.max(12, Math.min(28, size));
+    document.documentElement.style.fontSize = clamped + 'px';
+    set({ fontSize: clamped });
+  },
   setTheme: (theme: 'light' | 'dark') => set({ theme }),
 
   setSearchQuery: (query: string) => {
@@ -840,6 +876,148 @@ export const useNoteStore = create<NoteState>((set, get) => ({
     }
   },
 
+  moveNode: async (oldPath: string, newParentPath: string) => {
+    const { isSimulated, rootHandle, simulatedFiles, openTabs, activeTab, collapsedFolders, searchQuery } = get();
+    const oldParts = oldPath.split('/');
+    const filename = oldParts[oldParts.length - 1];
+    const isDir = simulatedFiles.some(f => f.path === oldPath && f.kind === 'directory');
+    const oldParent = oldParts.slice(0, -1).join('/');
+
+    if (oldParent === newParentPath) return; // same parent, no-op
+
+    // Prevent circular: can't drop a folder into itself or its own children
+    if (isDir && (newParentPath === oldPath || newParentPath.startsWith(oldPath + '/'))) return;
+
+    const newPath = newParentPath ? `${newParentPath}/${filename}` : filename;
+
+    if (isSimulated) {
+      // Check for name conflict
+      if (simulatedFiles.some(f => f.path === newPath)) {
+        throw new Error(`A file or folder named "${filename}" already exists at the destination.`);
+      }
+
+      const newFiles = simulatedFiles.map(f => {
+        if (f.path === oldPath) {
+          return { ...f, path: newPath };
+        }
+        if (f.path.startsWith(oldPath + '/')) {
+          const innerRelative = f.path.slice(oldPath.length);
+          return { ...f, path: newPath + innerRelative };
+        }
+        return f;
+      });
+
+      localStorage.setItem('noted_simulated_files', JSON.stringify(newFiles));
+
+      const newOpenTabs = openTabs.map(t => {
+        if (t === oldPath) return newPath;
+        if (t.startsWith(oldPath + '/')) {
+          return newPath + t.slice(oldPath.length);
+        }
+        return t;
+      });
+
+      let newActiveTab = activeTab;
+      if (activeTab === oldPath) {
+        newActiveTab = newPath;
+      } else if (activeTab?.startsWith(oldPath + '/')) {
+        newActiveTab = newPath + activeTab.slice(oldPath.length);
+      }
+
+      const fileObj = newActiveTab ? newFiles.find(f => f.path === newActiveTab) : null;
+      set({
+        simulatedFiles: newFiles,
+        fileTree: buildTreeFromPaths(newFiles, collapsedFolders, searchQuery),
+        openTabs: newOpenTabs,
+        activeTab: newActiveTab,
+        activeContent: fileObj ? (fileObj.content || "") : null
+      });
+    } else if (rootHandle) {
+      try {
+        // Walk to old parent
+        let oldDirHandle = rootHandle;
+        const oldParentSegments = oldParts.slice(0, -1);
+        for (const s of oldParentSegments) {
+          oldDirHandle = await oldDirHandle.getDirectoryHandle(s);
+        }
+
+        // Walk to new parent
+        let newDirHandle = rootHandle;
+        if (newParentPath) {
+          const newParentSegments = newParentPath.split('/');
+          for (const s of newParentSegments) {
+            newDirHandle = await newDirHandle.getDirectoryHandle(s);
+          }
+        }
+
+        // Check for name conflict
+        try {
+          await newDirHandle.getFileHandle(filename);
+          throw new Error(`A file or folder named "${filename}" already exists at the destination.`);
+        } catch (err: any) {
+          if (err.message?.includes('already exists')) throw err;
+          // File not found is expected — good to proceed
+        }
+
+        // Move the file/folder
+        const isRealDir = !oldPath.match(/\.\w+$/) && !oldPath.endsWith('.md') && !oldPath.endsWith('.txt') && !oldPath.endsWith('.json');
+        if (isRealDir) {
+          const oldDirEntry = await oldDirHandle.getDirectoryHandle(filename);
+          if (typeof (oldDirEntry as any).move === 'function') {
+            await (oldDirEntry as any).move(newDirHandle);
+          } else {
+            throw new Error("Your browser does not support folder moving. Please move individual files instead.");
+          }
+        } else {
+          const fileHandle = await oldDirHandle.getFileHandle(filename);
+          if (typeof (fileHandle as any).move === 'function') {
+            await (fileHandle as any).move(newDirHandle);
+          } else {
+            // Manual copy + delete
+            const newFileHandle = await newDirHandle.getFileHandle(filename, { create: true });
+            const oldFile = await fileHandle.getFile();
+            const contents = await oldFile.text();
+            const writable = await newFileHandle.createWritable();
+            await writable.write(contents);
+            await writable.close();
+            await (fileHandle as any).remove();
+          }
+        }
+
+        // Update tabs
+        const newOpenTabs = openTabs.map(t => {
+          if (t === oldPath) return newPath;
+          if (t.startsWith(oldPath + '/')) {
+            return newPath + t.slice(oldPath.length);
+          }
+          return t;
+        });
+
+        let newActiveTab = activeTab;
+        if (activeTab === oldPath) {
+          newActiveTab = newPath;
+        } else if (activeTab?.startsWith(oldPath + '/')) {
+          newActiveTab = newPath + activeTab.slice(oldPath.length);
+        }
+
+        const tree = await getFilesRecursively(rootHandle, "", collapsedFolders);
+        set({
+          fileTree: filterRealFileTree(tree, searchQuery),
+          openTabs: newOpenTabs
+        });
+
+        if (newActiveTab) {
+          await get().openFile(newActiveTab);
+        } else {
+          set({ activeTab: null, activeContent: null });
+        }
+      } catch (err: any) {
+        console.error("Move failed: ", err);
+        throw err;
+      }
+    }
+  },
+
   deleteNode: async (path: string) => {
     const { isSimulated, rootHandle, simulatedFiles, openTabs, activeTab, collapsedFolders, searchQuery, fileTree } = get();
 
@@ -1151,7 +1329,12 @@ useNoteStore.subscribe((state) => {
   localStorage.setItem('noted_collapsed_folders', JSON.stringify(state.collapsedFolders));
   localStorage.setItem('noted_theme', state.theme);
   localStorage.setItem('noted_right_sidebar_width', String(state.rightSidebarWidth));
+  localStorage.setItem('noted_left_sidebar_width', String(state.leftSidebarWidth));
+  localStorage.setItem('noted_font_size', String(state.fontSize));
 });
+
+// Apply initial font size to root
+document.documentElement.style.fontSize = getInitialFontSize() + 'px';
 
 // Initialize the store immediately with the initial tree
 // Try to restore a previously opened folder handle from IndexedDB

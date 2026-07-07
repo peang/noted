@@ -154,6 +154,8 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
 
   const fileType = getFileType(filePath);
 
+  const initialLoadRef = useRef(true);
+
   // Load content into editor on mount or when filePath changes
   useEffect(() => {
     if (fileType !== 'markdown') return;
@@ -161,7 +163,10 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
     let active = true;
 
     async function loadContent() {
-      setIsLoading(true);
+      if (initialLoadRef.current) {
+        setIsLoading(true);
+      }
+
       try {
         if (!activeContent) {
           await useNoteStore.getState().openFile(filePath);
@@ -182,6 +187,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
         if (active) {
           setIsLoading(false);
           mountedRef.current = true;
+          initialLoadRef.current = false;
         }
       }
     }
@@ -342,28 +348,24 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
           </span>
           <span className="text-theme-darker font-mono select-none">/</span>
           <span className="truncate font-medium text-theme-muted max-w-xs">{filePath}</span>
-        </div>
-        <div className="flex items-center gap-3">
+
           {isSaving ? (
-            <div className="flex items-center gap-1.5 text-theme-muted">
+            <div className="flex items-center gap-1.5 text-theme-muted ml-1">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-theme-text" />
               <span className="font-mono text-[11px]">Saving to disk...</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 text-emerald-500 bg-theme-input px-2.5 py-0.5 rounded border border-theme-border">
+            <div className="flex items-center gap-1.5 text-emerald-500 bg-theme-input px-2.5 py-0.5 rounded border border-theme-border ml-1">
               <Check className="w-3.5 h-3.5" />
               <span className="font-mono text-[11px] font-medium">Auto-saved</span>
             </div>
           )}
-
+        </div>
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
             title={rightSidebarOpen ? "Hide Open Documents list" : "Show Open Documents list"}
-            className={`px-2.5 py-1 rounded border transition-all cursor-pointer text-xs font-mono font-semibold ${
-              rightSidebarOpen
-                ? 'bg-theme-active text-theme-white hover:bg-theme-hover border-theme-border'
-                : 'bg-theme-input text-amber-400 hover:bg-theme-hover border-amber-500/30'
-            }`}
+            className="px-2.5 py-0.5 rounded transition-all cursor-pointer text-xs font-mono font-semibold bg-theme-white text-theme-bg hover:opacity-90"
           >
             Open Chat
           </button>

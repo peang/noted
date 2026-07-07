@@ -59,19 +59,22 @@ async function readWorkspaceFiles(): Promise<string> {
   if (isSimulated) {
     for (const f of simulatedFiles) {
       if (f.kind !== 'file') continue;
+      if (f.path.split('/').some(s => s.startsWith('.'))) continue;
       if (entries.length >= MAX_AI_FILES) break;
       const content = f.content || '';
       totalBytes += content.length;
       if (totalBytes > MAX_AI_CONTENT_KB * 1024) break;
       entries.push(`--- ${f.path} ---\n${content}\n`);
     }
-    const summary = entries.length < simulatedFiles.filter(f => f.kind === 'file').length
-      ? `\n(Showing ${entries.length} of ${simulatedFiles.filter(f => f.kind === 'file').length} files)\n`
+    const visibleFiles = simulatedFiles.filter(f => f.kind === 'file' && !f.path.split('/').some(s => s.startsWith('.')));
+    const summary = entries.length < visibleFiles.length
+      ? `\n(Showing ${entries.length} of ${visibleFiles.length} files)\n`
       : '';
     return entries.join('\n') + summary;
   }
 
   const readNode = async (node: FileNode) => {
+    if (node.name?.startsWith('.')) return;
     if (node.kind === 'file' && node.handle) {
       if (entries.length >= MAX_AI_FILES) return;
       try {
@@ -95,6 +98,7 @@ async function readWorkspaceFiles(): Promise<string> {
 function buildTreeString(nodes: FileNode[], indent = ''): string {
   let result = '';
   for (const node of nodes) {
+    if (node.name?.startsWith('.')) continue;
     if (node.kind === 'directory' && !node.children?.length) continue;
     result += `${indent}- ${node.kind === 'directory' ? '📁 ' : '📄 '}${node.name}${node.kind === 'directory' ? '/' : ''}\n`;
     if (node.children) {
@@ -114,6 +118,7 @@ async function buildFullTree(
     const dirs = new Set<string>();
     const lines: string[] = [];
     for (const f of simulatedFiles) {
+      if (f.path.split('/').some(s => s.startsWith('.'))) continue;
       const parts = f.path.split('/');
       for (let i = 1; i < parts.length; i++) {
         const dirPath = parts.slice(0, i).join('/');
@@ -124,19 +129,21 @@ async function buildFullTree(
       }
       lines.push(`${'  '.repeat(parts.length - 1)}📄 ${parts[parts.length - 1]}`);
     }
-    const count = simulatedFiles.filter(f => f.kind === 'file').length;
+    const count = simulatedFiles.filter(f => f.kind === 'file' && !f.path.split('/').some(s => s.startsWith('.'))).length;
     return `📁 Workspace (${count} files)\n${lines.join('\n')}`;
   }
 
   if (workspacePaths.length === 0) return '(empty)';
 
-  const lines = workspacePaths.map(p => {
-    const depth = p.replace(/\/$/, '').split('/').length - 1;
-    const indent = '  '.repeat(depth);
-    const isDir = p.endsWith('/');
-    const name = isDir ? p.split('/').slice(-2, -1)[0] + '/' : p.split('/').pop() || '';
-    return `${indent}${isDir ? '📁' : '📄'} ${name}`;
-  });
+  const lines = workspacePaths
+    .filter(p => !p.split('/').some(s => s.startsWith('.')))
+    .map(p => {
+      const depth = p.replace(/\/$/, '').split('/').length - 1;
+      const indent = '  '.repeat(depth);
+      const isDir = p.endsWith('/');
+      const name = isDir ? p.split('/').slice(-2, -1)[0] + '/' : p.split('/').pop() || '';
+      return `${indent}${isDir ? '📁' : '📄'} ${name}`;
+    });
 
   return `📁 Workspace (${workspaceCounts.files} files, ${workspaceCounts.folders} folders)\n${lines.join('\n')}`;
 }
