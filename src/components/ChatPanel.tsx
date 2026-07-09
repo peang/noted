@@ -1,8 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useChatStore, Message } from '../store/chatStore';
 import { useNoteStore } from '../store/noteStore';
 import { toast } from 'sonner';
 import { Send, Key, ExternalLink, Trash2, Sparkles, Loader2, FileText, Folder, FileEdit, Check, X } from 'lucide-react';
+import { useFileMention } from '../hooks/useFileMention';
+import FileMentionDropdown from './FileMentionDropdown';
 
 function stripSystemReminder(text: string): string {
   const idx = text.indexOf('<system-reminder>');
@@ -14,11 +16,40 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function getCurrentFilePaths(): string[] {
+  const state = useNoteStore.getState();
+  if (state.isSimulated) {
+    return state.simulatedFiles.filter(f => f.kind === 'file').map(f => f.path);
+  }
+  return state.workspacePaths.filter(p => !p.endsWith('/'));
+}
+
 function renderInline(text: string): string {
-  return escapeHtml(text)
+  const filePaths = getCurrentFilePaths();
+
+  let result = text;
+  const refs: string[] = [];
+
+  const sorted = [...filePaths].sort((a, b) => b.length - a.length);
+  for (const path of sorted) {
+    const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(escaped, 'g'), () => {
+      refs.push(path);
+      return `\x00FR${refs.length - 1}\x00`;
+    });
+  }
+
+  result = escapeHtml(result)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/~~(.+?)~~/g, '<del>$1</del>');
+
+  for (let i = 0; i < refs.length; i++) {
+    const escapedPath = escapeHtml(refs[i]);
+    result = result.replace(`\x00FR${i}\x00`, `<a class="file-ref-link" data-path="${escapedPath}">${escapedPath}</a>`);
+  }
+
+  return result;
 }
 
 function renderMarkdown(text: string): React.ReactNode[] {
@@ -172,13 +203,38 @@ function ChatView() {
   const rejectWrite = useChatStore((s) => s.rejectWrite);
 
   const [input, setInput] = useState('');
+  const [cursorPos, setCursorPos] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const mention = useFileMention(input, cursorPos);
 
   const fileCount = workspaceCounts.files;
   const contextLabel = activeTab
     ? `Active: ${activeTab} · ${fileCount} file${fileCount !== 1 ? 's' : ''} in workspace`
     : `${fileCount} file${fileCount !== 1 ? 's' : ''} in workspace`;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleMentionSelect = useCallback((path: string) => {
+    const textBefore = input.slice(0, cursorPos);
+    const atIdx = textBefore.lastIndexOf('@');
+    if (atIdx === -1) return;
+    const suffix = input.slice(cursorPos);
+    const spacer = suffix && !suffix.startsWith(' ') && !suffix.startsWith('\n') ? ' ' : '';
+    const newInput = input.slice(0, atIdx) + '@' + path + spacer + suffix;
+    setInput(newInput);
+    const newPos = atIdx + path.length + 1 + spacer.length;
+    setCursorPos(newPos);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      if (textareaRef.current) {
+        textareaRef.current.selectionStart = newPos;
+        textareaRef.current.selectionEnd = newPos;
+      }
+    });
+  }, [input, cursorPos]);
+
+  const handleMentionClose = useCallback(() => {
+    textareaRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (listRef.current) {
@@ -207,6 +263,7 @@ function ChatView() {
     const content = input.trim();
     if (!content || isLoading) return;
     setInput('');
+    setCursorPos(0);
     sendMessage(content);
   };
 
@@ -272,7 +329,16 @@ function ChatView() {
       </div>
 
       {/* Messages */}
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 thin-scrollbar space-y-3">
+      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 thin-scrollbar space-y-3"
+        onClick={(e) => {
+          const link = (e.target as HTMLElement).closest('.file-ref-link');
+          if (link) {
+            e.preventDefault();
+            const path = link.getAttribute('data-path');
+            if (path) useNoteStore.getState().openFile(path);
+          }
+        }}
+      >
         {visibleMessages(messages).length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center h-full text-center gap-2 text-theme-darker">
             <Sparkles className="w-6 h-6" />
@@ -344,18 +410,52 @@ function ChatView() {
           </div>
         )}
         <div className="p-3">
-          <div className="flex items-end gap-2">
+          <div
+            className="relative flex items-end gap-2"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const path = e.dataTransfer.getData('text/plain');
+              if (path) {
+                const prefix = input.length > 0 && !input.endsWith(' ') ? ' ' : '';
+                setInput(prev => prev + prefix + '@' + path + ' ');
+                textareaRef.current?.focus();
+              }
+            }}
+          >
+            {mention.active && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 z-50">
+                <FileMentionDropdown
+                  searchTerm={mention.searchTerm}
+                  onSelect={handleMentionSelect}
+                  onClose={handleMentionClose}
+                />
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                setCursorPos(e.target.selectionStart);
+              }}
+              onSelect={(e) => setCursorPos(e.currentTarget.selectionStart)}
+              onClick={(e) => setCursorPos(e.currentTarget.selectionStart)}
+              onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart)}
               onKeyDown={(e) => {
+                if (mention.active && ['Enter', 'ArrowUp', 'ArrowDown', 'Escape'].includes(e.key)) {
+                  e.preventDefault();
+                  return;
+                }
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSend();
                 }
               }}
-              placeholder="Ask about your workspace..."
+              placeholder="Ask about your workspace... (@ to reference files)"
               readOnly={isLoading}
               rows={1}
               className="flex-1 bg-theme-input border border-theme-border rounded px-3 py-2 text-xs text-theme-text placeholder-theme-darker outline-none focus:border-theme-border-hover read-only:opacity-50 resize-none overflow-y-auto min-h-[32px] max-h-[200px] leading-relaxed"

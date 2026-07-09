@@ -46,6 +46,8 @@ async function deleteRootHandle(): Promise<void> {
   });
 }
 
+let _folderPickerOpening = false;
+
 export interface FileNode {
   name: string;
   path: string;
@@ -580,6 +582,11 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   },
 
   openFolderPicker: async () => {
+    if (_folderPickerOpening) {
+      console.log('[picker] blocked by concurrent open');
+      return;
+    }
+    _folderPickerOpening = true;
     try {
       console.log('[picker] step 1 - checking API');
       if (typeof (window as any).showDirectoryPicker !== 'function') {
@@ -629,7 +636,8 @@ export const useNoteStore = create<NoteState>((set, get) => ({
       console.log('[picker] step 7 - DONE');
     } catch (err: any) {
       console.error('[picker] ERROR at step:', err);
-      
+      set({ isRestoring: false });
+
       const errText = String(err?.message || "").toLowerCase();
       const isSandboxException = 
         errText.includes("sub frame") || 
@@ -641,12 +649,14 @@ export const useNoteStore = create<NoteState>((set, get) => ({
 
       if (isSandboxException) {
         set({ showSandboxModal: true });
-        throw new Error("Iframe Sandbox Constraint: Browser blocks filesystem pickers in cross-origin frames.");
+        _folderPickerOpening = false;
+        return;
       }
 
-      // Fallback or bubble error to handle graciously
+      _folderPickerOpening = false;
       throw err;
     }
+    _folderPickerOpening = false;
   },
 
   createFile: async (parentPath: string | null, name: string) => {

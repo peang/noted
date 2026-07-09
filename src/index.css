@@ -222,3 +222,16 @@
 .chat-table td {
   color: var(--color-theme-text);
 }
+
+.file-ref-link {
+  color: var(--color-theme-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--color-theme-darker);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.file-ref-link:hover {
+  color: var(--color-theme-white);
+  text-decoration-color: var(--color-theme-text);
+}

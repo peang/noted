@@ -50,6 +50,52 @@ function stripSystemReminder(text: string): string {
   return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
 }
 
+function getAllFilePaths(): string[] {
+  const state = useNoteStore.getState();
+  if (state.isSimulated) {
+    return state.simulatedFiles.filter(f => f.kind === 'file').map(f => f.path);
+  }
+  return state.workspacePaths.filter(p => !p.endsWith('/'));
+}
+
+function extractFileRefs(message: string): string[] {
+  const allPaths = getAllFilePaths();
+  allPaths.sort((a, b) => b.length - a.length);
+  const occupied = new Set<number>();
+  const refs: string[] = [];
+
+  for (const path of allPaths) {
+    const search = `@${path}`;
+    let idx = 0;
+    while (idx < message.length) {
+      const found = message.indexOf(search, idx);
+      if (found === -1) break;
+      const end = found + search.length;
+      const isOccupied = Array.from(occupied).some(pos => pos >= found && pos < end);
+      if (!isOccupied) {
+        const prev = message[found - 1];
+        if (found === 0 || /[\s\n.,;:!?)]/.test(prev)) {
+          for (let i = found; i < end; i++) occupied.add(i);
+          refs.push(path);
+          break;
+        }
+      }
+      idx = found + 1;
+    }
+  }
+  return refs;
+}
+
+function stripRefPrefixes(content: string): string {
+  const allPaths = getAllFilePaths();
+  allPaths.sort((a, b) => b.length - a.length);
+  let result = content;
+  for (const path of allPaths) {
+    result = result.replaceAll(`@${path}`, path);
+  }
+  return result;
+}
+
 async function readWorkspaceFiles(): Promise<string> {
   const state = useNoteStore.getState();
   const { isSimulated, simulatedFiles, fileTree } = state;
@@ -148,7 +194,7 @@ async function buildFullTree(
   return `📁 Workspace (${workspaceCounts.files} files, ${workspaceCounts.folders} folders)\n${lines.join('\n')}`;
 }
 
-async function buildWorkspaceContext(): Promise<string> {
+async function buildWorkspaceContext(userMessage?: string): Promise<string> {
   const state = useNoteStore.getState();
   const { folderName, isSimulated, simulatedFiles, workspacePaths, workspaceCounts, activeTab, activeContent } = state;
 
@@ -175,6 +221,14 @@ async function buildWorkspaceContext(): Promise<string> {
     parts.push('```');
   } else if (activeTab) {
     parts.push(`The user currently has "${activeTab}" open.`);
+  }
+
+  if (userMessage) {
+    const refs = extractFileRefs(userMessage);
+    if (refs.length > 0) {
+      parts.push('User referenced files in their message (denoted by @path):');
+      parts.push(refs.map(p => `- ${p}`).join('\n'));
+    }
   }
 
   parts.push('You have tools `read_file` and `write_file`. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to save changes to existing files. You cannot create new files.');
@@ -356,7 +410,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     saveToStorage(STORAGE_KEY_MESSAGES, currentMessages);
 
     try {
-      const context = await buildWorkspaceContext();
+      const context = await buildWorkspaceContext(content);
       const systemMsg: Message = { role: 'system', content: context };
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -372,7 +426,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             model,
             messages: apiMessages.map((m) => ({
               role: m.role,
-              content: m.content,
+              content: m.role === 'user' && m.content ? stripRefPrefixes(m.content) : m.content,
               tool_calls: m.tool_calls,
               tool_call_id: m.tool_call_id,
             })),
