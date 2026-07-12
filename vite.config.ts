@@ -12,6 +12,7 @@ export default defineConfig(() => {
       },
     },
     optimizeDeps: {
+      include: ['@emoji-mart/data'],
       exclude: ['pdfjs-dist'],
     },
     build: {
