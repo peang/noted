@@ -115,6 +115,7 @@ interface NoteState {
   theme: 'light' | 'dark';
   workspacePaths: string[];
   workspaceCounts: { files: number; folders: number };
+  fileTimestamps: Record<string, number>;
 
   // Actions
   setShowSandboxModal: (show: boolean) => void;
@@ -140,6 +141,7 @@ interface NoteState {
   restoreRootHandle: () => Promise<void>;
   refreshFolder: () => Promise<void>;
   setTheme: (theme: 'light' | 'dark') => void;
+  checkFileChanges: () => Promise<void>;
 }
 
 // Initial Simulated Files
@@ -531,6 +533,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   theme: getInitialTheme(),
   workspacePaths: [],
   workspaceCounts: { files: 0, folders: 0 },
+  fileTimestamps: {},
 
   setShowSandboxModal: (show: boolean) => set({ showSandboxModal: show }),
   setRightSidebarOpen: (open: boolean) => set({ rightSidebarOpen: open }),
@@ -1310,6 +1313,34 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         isRestoring: false,
         restoreError: "Could not restore folder — it may have been moved or deleted. Click 'Open Folder' to re-select.",
       });
+    }
+  },
+
+  checkFileChanges: async () => {
+    const { rootHandle, activeTab, fileTimestamps } = get();
+    if (!rootHandle || !activeTab) return;
+
+    try {
+      const segments = activeTab.split('/');
+      let dirHandle = rootHandle;
+      for (const s of segments.slice(0, -1))
+        dirHandle = await dirHandle.getDirectoryHandle(s);
+
+      const fileHandle = await dirHandle.getFileHandle(segments.at(-1)!);
+      const file = await fileHandle.getFile();
+
+      if (file.lastModified !== (fileTimestamps[activeTab] ?? 0)) {
+        const type = getFileType(activeTab);
+        const content = (type === 'markdown' || type === 'text')
+          ? await file.text()
+          : get().activeContent;
+        set({
+          activeContent: content,
+          fileTimestamps: { ...fileTimestamps, [activeTab]: file.lastModified },
+        });
+      }
+    } catch (err) {
+      console.debug('poll failed:', activeTab, err);
     }
   },
 

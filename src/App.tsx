@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import NoteEditor from './components/NoteEditor';
 import { useNoteStore, FileNode } from './store/noteStore';
+import { useFileWatcher } from './hooks/useFileWatcher';
 import {
   FileText,
   X,
@@ -23,6 +24,8 @@ import { Toaster } from 'sonner';
 import ChatPanel from './components/ChatPanel';
 
 export default function App() {
+  useFileWatcher();
+
   const openTabs = useNoteStore((state) => state.openTabs);
   const activeTab = useNoteStore((state) => state.activeTab);
   const isSimulated = useNoteStore((state) => state.isSimulated);
