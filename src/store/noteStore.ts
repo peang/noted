@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { toast } from 'sonner';
 
 const DB_NAME = 'noted_fs_handles';
 const DB_VERSION = 1;
@@ -89,6 +90,15 @@ export function getFileType(path: string): 'markdown' | 'text' | 'pdf' | 'doc' |
 
 function isHiddenPath(path: string): boolean {
   return path.split('/').some(segment => segment.startsWith('.'));
+}
+
+async function isHandleHealthy(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  try {
+    for await (const _ of (handle as any).values()) break;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface NoteState {
@@ -1388,4 +1398,16 @@ document.documentElement.style.fontSize = getInitialFontSize() + 'px';
 const currentStore = useNoteStore.getState();
 currentStore.restoreRootHandle().then(() => {
   currentStore.setSearchQuery("");
+});
+
+// Detect stale handle after system sleep
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') return;
+  const { rootHandle, isSimulated } = useNoteStore.getState();
+  if (isSimulated || !rootHandle) return;
+  const healthy = await isHandleHealthy(rootHandle);
+  if (!healthy) {
+    useNoteStore.getState().resetToSimulated();
+    toast.info('Folder disconnected after sleep. Switched to sandbox mode.');
+  }
 });
