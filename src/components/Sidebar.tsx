@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNoteStore, FileNode } from '../store/noteStore';
 import { toast } from 'sonner';
+import { defaultStyles } from 'react-file-icon';
 import {
   Folder,
   FolderOpen,
@@ -23,6 +24,66 @@ import {
   Moon,
   Minus
 } from 'lucide-react';
+
+const FILE_COLORS: Record<string, string> = {
+  md:    '#FFB300',
+  ts:    '#4DD0E1',
+  tsx:   '#FF8A65',
+  js:    '#FDD835',
+  jsx:   '#00BCD4',
+  json:  '#66BB6A',
+  jsonc: '#66BB6A',
+  css:   '#EC407A',
+  html:  '#EF5350',
+  svg:   '#FF7043',
+  py:    '#FFCA28',
+  go:    '#00ACC1',
+  rs:    '#DE4C36',
+  rb:    '#D4382D',
+  yaml:  '#26A69A',
+  yml:   '#26A69A',
+  toml:  '#8D6E63',
+  lock:  '#78909C',
+  sh:    '#4DB6AC',
+  bash:  '#4DB6AC',
+  txt:   '#90A4AE',
+  pdf:   '#E53935',
+  doc:   '#1E88E5',
+  docx:  '#1E88E5',
+  xls:   '#43A047',
+  xlsx:  '#43A047',
+  ppt:   '#FB8C00',
+  pptx:  '#FB8C00',
+  zip:   '#78909C',
+  gz:    '#78909C',
+  csv:   '#66BB6A',
+};
+
+function getFileColor(ext: string): string {
+  const custom = FILE_COLORS[ext];
+  if (custom) return custom;
+  const def = (defaultStyles as any)[ext];
+  if (def?.color) return def.color;
+  return '#78909C';
+}
+
+function FileTypeBlock({ ext }: { ext: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" role="img" aria-label={ext}>
+      <rect width="24" height="24" rx="3" fill={getFileColor(ext)} />
+      <text
+        x="12" y="17"
+        textAnchor="middle"
+        fill="white"
+        fontSize="10"
+        fontWeight="800"
+        fontFamily="system-ui, sans-serif"
+      >
+        {(ext || '?').slice(0, 4).toUpperCase()}
+      </text>
+    </svg>
+  );
+}
 
 export default function Sidebar() {
   const isSimulated = useNoteStore((state) => state.isSimulated);
@@ -202,7 +263,7 @@ export default function Sidebar() {
                   ? 'bg-theme-hover text-theme-white ring-1 ring-theme-border-hover'
                   : 'text-theme-muted hover:bg-theme-active hover:text-theme-white'
             }`}
-            style={{ paddingLeft: `${Math.max(8, depth * 12)}px` }}
+            style={{ paddingLeft: `${Math.max(8, depth * 16)}px` }}
             onClick={() => {
               if (isFolder) {
                 toggleFolderCollapse(node.path);
@@ -228,12 +289,12 @@ export default function Sidebar() {
               {/* Kind Icons */}
               {isFolder ? (
                 node.isOpen ? (
-                  <FolderOpen className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-theme-white' : 'text-theme-muted'}`} />
+                  <FolderOpen fill="currentColor" className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-theme-white' : 'text-indigo-400'}`} />
                 ) : (
-                  <Folder className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-theme-white' : 'text-theme-muted'}`} />
+                  <Folder fill="currentColor" className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-theme-white' : 'text-indigo-400'}`} />
                 )
               ) : (
-                <FileText className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-theme-white' : 'text-theme-darker'}`} />
+                <FileTypeBlock ext={node.name.split('.').pop()?.toLowerCase() || ''} />
               )}
 
               {/* Label (Standard or Edit mode) */}
@@ -259,7 +320,7 @@ export default function Sidebar() {
             {/* Action Buttons (Hidden by default, hover triggers visible) */}
             {!isBeingRenamed && (
               <div
-                className="opacity-0 group-hover:opacity-100 flex items-center gap-1 ml-2 text-theme-darker shrink-0 transition-opacity duration-100"
+                className="hidden group-hover:flex items-center gap-1 ml-2 text-theme-darker shrink-0 transition-opacity duration-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Folders support Adding nested Files or folders */}
@@ -322,13 +383,13 @@ export default function Sidebar() {
           {isAddingHere && (
             <div
               className="flex items-center gap-2 py-0.5 pr-3"
-              style={{ paddingLeft: `${(depth + 1) * 12 + 8}px` }}
+              style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
               onClick={(e) => e.stopPropagation()}
             >
               {addingChildState?.type === 'file' ? (
                 <FileText className="w-3.5 h-3.5 text-theme-darker shrink-0" />
               ) : (
-                <Folder className="w-3.5 h-3.5 text-theme-darker shrink-0" />
+                <Folder fill="currentColor" className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
               )}
               <form onSubmit={handleInlineSubmit} className="flex-1">
                 <input
@@ -356,7 +417,7 @@ export default function Sidebar() {
           {isFolder && node.isOpen && (!node.children || node.children.length === 0) && !isAddingHere && (
             <div
               className="text-[10px] font-mono text-theme-darker italic py-1 select-none"
-              style={{ paddingLeft: `${(depth + 1) * 12 + 14}px` }}
+              style={{ paddingLeft: `${(depth + 1) * 16 + 14}px` }}
             >
               Empty Folder
             </div>
@@ -492,7 +553,7 @@ export default function Sidebar() {
             {addingChildState.type === 'file' ? (
               <FileText className="w-3.5 h-3.5 text-theme-darker shrink-0" />
             ) : (
-              <Folder className="w-3.5 h-3.5 text-theme-darker shrink-0" />
+              <Folder fill="currentColor" className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
             )}
             <form onSubmit={handleInlineSubmit} className="flex-1">
               <input
