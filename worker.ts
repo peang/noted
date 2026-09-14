@@ -8,6 +8,7 @@ export default {
 
       const headers = new Headers(request.headers);
       headers.set('Host', 'opencode.ai');
+      headers.set('User-Agent', 'noted/1.0');
 
       try {
         return await fetch(target, {

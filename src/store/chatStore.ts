@@ -42,6 +42,15 @@ function saveToStorage(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function getSessionId(): string {
+  let id = localStorage.getItem(STORAGE_KEY_SESSION);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(STORAGE_KEY_SESSION, id);
+  }
+  return id;
+}
+
 function stripSystemReminder(text: string): string {
   if (text.includes('<system-reminder>') && !text.includes('</system-reminder>')) {
     const idx = text.indexOf('<system-reminder>');
@@ -357,6 +366,7 @@ const MAX_TOOL_ROUNDS = 3;
 const STORAGE_KEY_API_KEY = 'noted_go_api_key';
 const STORAGE_KEY_MESSAGES = 'noted_chat_messages';
 const STORAGE_KEY_MODEL = 'noted_chat_model';
+const STORAGE_KEY_SESSION = 'noted_chat_session';
 
 let writeResolver: ((approved: boolean) => void) | null = null;
 
@@ -385,7 +395,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!apiKey) return;
     try {
       const res = await fetch('/api/opencode/models', {
-        headers: { Authorization: `Bearer ${apiKey}` },
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'x-opencode-session': getSessionId(),
+        },
       });
       if (!res.ok) throw new Error(`Failed to fetch models (${res.status})`);
       const data = await res.json();
@@ -421,6 +434,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
+            'x-opencode-session': getSessionId(),
           },
           body: JSON.stringify({
             model,
