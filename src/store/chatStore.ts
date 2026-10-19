@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { useNoteStore, FileNode, buildTreeFromPaths, getFilesRecursively, filterRealFileTree } from './noteStore';
+import { useNoteStore, buildTreeFromPaths, getFilesRecursively, filterRealFileTree } from './noteStore';
 
 export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -17,11 +17,13 @@ interface ChatState {
   chatError: string | null;
   lastUsage: { prompt: number; completion: number; reasoning: number } | null;
   aiStatus: string | null;
-  pendingWrite: { path: string; content: string } | null;
+  // oldContent is null when the AI is creating a new file
+  pendingWrite: { path: string; content: string; oldContent: string | null } | null;
 
-  setApiKey: (key: string) => void;
+  setApiKey: (key: string) => Promise<void>;
   clearApiKey: () => void;
   sendMessage: (content: string) => Promise<void>;
+  stopGeneration: () => void;
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
   clearChat: () => void;
@@ -39,7 +41,12 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    // Quota full or storage blocked — keep the in-memory state, don't break the chat
+    console.warn(`Failed to save "${key}" to localStorage`, e);
+  }
 }
 
 function getSessionId(): string {
@@ -51,7 +58,7 @@ function getSessionId(): string {
   return id;
 }
 
-function stripSystemReminder(text: string): string {
+export function stripSystemReminder(text: string): string {
   if (text.includes('<system-reminder>') && !text.includes('</system-reminder>')) {
     const idx = text.indexOf('<system-reminder>');
     return text.slice(0, idx).trim();
@@ -101,64 +108,6 @@ function stripRefPrefixes(content: string): string {
   let result = content;
   for (const path of allPaths) {
     result = result.replaceAll(`@${path}`, path);
-  }
-  return result;
-}
-
-async function readWorkspaceFiles(): Promise<string> {
-  const state = useNoteStore.getState();
-  const { isSimulated, simulatedFiles, fileTree } = state;
-  const entries: string[] = [];
-  let totalBytes = 0;
-
-  if (isSimulated) {
-    for (const f of simulatedFiles) {
-      if (f.kind !== 'file') continue;
-      if (f.path.split('/').some(s => s.startsWith('.'))) continue;
-      if (entries.length >= MAX_AI_FILES) break;
-      const content = f.content || '';
-      totalBytes += content.length;
-      if (totalBytes > MAX_AI_CONTENT_KB * 1024) break;
-      entries.push(`--- ${f.path} ---\n${content}\n`);
-    }
-    const visibleFiles = simulatedFiles.filter(f => f.kind === 'file' && !f.path.split('/').some(s => s.startsWith('.')));
-    const summary = entries.length < visibleFiles.length
-      ? `\n(Showing ${entries.length} of ${visibleFiles.length} files)\n`
-      : '';
-    return entries.join('\n') + summary;
-  }
-
-  const readNode = async (node: FileNode) => {
-    if (node.name?.startsWith('.')) return;
-    if (node.kind === 'file' && node.handle) {
-      if (entries.length >= MAX_AI_FILES) return;
-      try {
-        const file = await (node.handle as FileSystemFileHandle).getFile();
-        const content = await file.text();
-        totalBytes += content.length;
-        if (totalBytes > MAX_AI_CONTENT_KB * 1024) return;
-        entries.push(`--- ${node.path} ---\n${content}\n`);
-      } catch {
-        entries.push(`--- ${node.path} ---\n(unreadable)\n`);
-      }
-    }
-    if (node.children) {
-      for (const child of node.children) await readNode(child);
-    }
-  };
-  for (const node of fileTree) await readNode(node);
-  return entries.join('\n');
-}
-
-function buildTreeString(nodes: FileNode[], indent = ''): string {
-  let result = '';
-  for (const node of nodes) {
-    if (node.name?.startsWith('.')) continue;
-    if (node.kind === 'directory' && !node.children?.length) continue;
-    result += `${indent}- ${node.kind === 'directory' ? '📁 ' : '📄 '}${node.name}${node.kind === 'directory' ? '/' : ''}\n`;
-    if (node.children) {
-      result += buildTreeString(node.children, indent + '  ');
-    }
   }
   return result;
 }
@@ -224,9 +173,10 @@ async function buildWorkspaceContext(userMessage?: string): Promise<string> {
   }
 
   if (activeTab && content) {
-    parts.push(`The user currently has "${activeTab}" open with the following content:`);
+    const truncated = content.length > MAX_ACTIVE_CONTENT_CHARS;
+    parts.push(`The user currently has "${activeTab}" open with the following content${truncated ? ' (truncated — use read_file for the full file)' : ''}:`);
     parts.push('```' + activeTab.split('.').pop() + '');
-    parts.push(content);
+    parts.push(truncated ? content.slice(0, MAX_ACTIVE_CONTENT_CHARS) : content);
     parts.push('```');
   } else if (activeTab) {
     parts.push(`The user currently has "${activeTab}" open.`);
@@ -240,10 +190,41 @@ async function buildWorkspaceContext(userMessage?: string): Promise<string> {
     }
   }
 
-  parts.push('You have tools `read_file` and `write_file`. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to save changes to existing files. You cannot create new files.');
+  parts.push('You have tools `read_file` and `write_file`. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to create a new file or update an existing one. write_file replaces the whole file, so read_file first and always send the complete content.');
   parts.push('Be brief and direct. No pleasantries, no disclaimers, no explanations. Just answer the question and stop. Answer based only on the notes provided.');
 
   return parts.join('\n');
+}
+
+// Tool paths come from the model: keep them relative, inside the workspace and away from hidden files
+function validateToolPath(path: string): string | null {
+  const parts = path.split('/');
+  if (path.startsWith('/') || parts.some((p) => !p || p === '.' || p === '..' || p.startsWith('.'))) {
+    return `Error: Invalid path "${path}". Use a relative path to a visible file in the workspace.`;
+  }
+  return null;
+}
+
+// Returns null when the file doesn't exist
+async function readExistingFile(path: string): Promise<string | null> {
+  const { isSimulated, simulatedFiles, rootHandle } = useNoteStore.getState();
+  if (isSimulated) {
+    const file = simulatedFiles.find((f) => f.path === path && f.kind === 'file');
+    return file ? file.content || '' : null;
+  }
+  if (!rootHandle) return null;
+  try {
+    const parts = path.split('/');
+    const fileName = parts.pop()!;
+    let dirHandle = rootHandle;
+    for (const part of parts) {
+      dirHandle = await dirHandle.getDirectoryHandle(part);
+    }
+    const file = await (await dirHandle.getFileHandle(fileName)).getFile();
+    return await file.text();
+  } catch {
+    return null;
+  }
 }
 
 async function executeWriteFile(path: string, content: string): Promise<string> {
@@ -360,15 +341,40 @@ const WRITE_FILE_TOOL = {
   },
 };
 
-const MAX_AI_FILES = 20;
-const MAX_AI_CONTENT_KB = 5000;
-const MAX_TOOL_ROUNDS = 3;
+const MAX_TOOL_ROUNDS = 5;
+const MAX_ACTIVE_CONTENT_CHARS = 50_000;
+const MAX_PERSISTED_TOOL_CHARS = 2000;
 const STORAGE_KEY_API_KEY = 'noted_go_api_key';
 const STORAGE_KEY_MESSAGES = 'noted_chat_messages';
 const STORAGE_KEY_MODEL = 'noted_chat_model';
 const STORAGE_KEY_SESSION = 'noted_chat_session';
 
 let writeResolver: ((approved: boolean) => void) | null = null;
+// Incremented on every new request and every cancel; a run whose id no longer matches is stale
+let runId = 0;
+let abortController: AbortController | null = null;
+
+// Invalidates the in-flight sendMessage run: aborts its request, rejects a
+// pending write, and resets the transient UI state.
+function cancelRun() {
+  runId++;
+  abortController?.abort();
+  abortController = null;
+  if (writeResolver) {
+    writeResolver(false);
+    writeResolver = null;
+  }
+  useChatStore.setState({ isLoading: false, pendingWrite: null, aiStatus: null });
+}
+
+// read_file results can be whole files; trim them in storage so localStorage doesn't fill up
+function persistMessages(messages: Message[]) {
+  saveToStorage(STORAGE_KEY_MESSAGES, messages.map((m) =>
+    m.role === 'tool' && m.content && m.content.length > MAX_PERSISTED_TOOL_CHARS
+      ? { ...m, content: m.content.slice(0, MAX_PERSISTED_TOOL_CHARS) + '\n…(truncated)' }
+      : m
+  ));
+}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   apiKey: loadFromStorage<string | null>(STORAGE_KEY_API_KEY, null),
@@ -384,8 +390,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   aiStatus: null,
   pendingWrite: null,
 
-  setApiKey: (key: string) => {
-    set({ apiKey: key, chatError: null });
+  setApiKey: async (key: string) => {
+    set({ chatError: null });
+    try {
+      const res = await fetch('/api/opencode/models', {
+        headers: { Authorization: `Bearer ${key}`, 'x-opencode-session': getSessionId() },
+      });
+      if (res.status === 401 || res.status === 403) {
+        set({ chatError: 'Invalid API key.' });
+        return;
+      }
+    } catch {
+      // Network trouble isn't proof the key is wrong — save it and let fetchModels report
+    }
+    set({ apiKey: key });
     saveToStorage(STORAGE_KEY_API_KEY, key);
     get().fetchModels();
   },
@@ -406,7 +424,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         id: m.id,
         name: m.id,
       }));
-      set({ availableModels: models });
+      // A stored model that's no longer offered would show one option but send another
+      if (models.length > 0 && !models.some((m: { id: string }) => m.id === get().model)) {
+        set({ availableModels: models, model: models[0].id });
+        saveToStorage(STORAGE_KEY_MODEL, models[0].id);
+      } else {
+        set({ availableModels: models });
+      }
     } catch (err: any) {
       set({ chatError: err.message });
     }
@@ -414,19 +438,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (content: string) => {
     await waitForRestore();
-    const { apiKey, model, messages } = get();
-    if (!apiKey) return;
+    const { apiKey, model, messages, isLoading } = get();
+    if (!apiKey || isLoading) return;
+
+    const myRun = ++runId;
+    const controller = new AbortController();
+    abortController = controller;
+    const isStale = () => myRun !== runId;
 
     const userMsg: Message = { role: 'user', content };
     let currentMessages = [...messages, userMsg];
     set({ messages: currentMessages, isLoading: true, chatError: null, lastUsage: null });
-    saveToStorage(STORAGE_KEY_MESSAGES, currentMessages);
+    persistMessages(currentMessages);
 
     try {
-      const context = await buildWorkspaceContext(content);
-      const systemMsg: Message = { role: 'system', content: context };
+      let systemMsg: Message = { role: 'system', content: await buildWorkspaceContext(content) };
+      if (isStale()) return;
+      let contextStale = false;
 
-      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      // The last round is sent without tools so the model has to give a final answer
+      for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+        const allowTools = round < MAX_TOOL_ROUNDS;
+        // A write may have changed the tree or the open file
+        if (contextStale) {
+          systemMsg = { role: 'system', content: await buildWorkspaceContext(content) };
+          if (isStale()) return;
+          contextStale = false;
+        }
         const apiMessages = [systemMsg, ...currentMessages];
 
         const res = await fetch('/api/opencode/chat/completions', {
@@ -444,10 +482,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
               tool_calls: m.tool_calls,
               tool_call_id: m.tool_call_id,
             })),
-            tools: [READ_FILE_TOOL, WRITE_FILE_TOOL],
+            ...(allowTools ? { tools: [READ_FILE_TOOL, WRITE_FILE_TOOL] } : {}),
             stream: true,
           }),
+          signal: controller.signal,
         });
+        if (isStale()) return;
 
         if (!res.ok) {
           const errBody = await res.text();
@@ -465,6 +505,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         while (true) {
           const { done, value } = await reader.read();
+          if (isStale()) return;
           if (done || streamEnded) break;
 
           buffer += decoder.decode(value, { stream: true });
@@ -531,7 +572,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (toolCalls.size > 0) {
           const assistantToolMsg: Message = {
             role: 'assistant',
-            content: null,
+            // Keep text streamed before the tool call so it doesn't vanish from the chat
+            content: assistantContent ? stripSystemReminder(assistantContent) : null,
             tool_calls: Array.from(toolCalls.values()),
           };
           currentMessages = [...currentMessages, assistantToolMsg];
@@ -539,24 +581,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
           for (const tc of Array.from(toolCalls.values())) {
             try {
               const args = JSON.parse(tc.function.arguments);
+              if (typeof args?.path !== 'string' || !args.path) throw new Error('"path" must be a non-empty string');
+              if (tc.function.name === 'write_file' && typeof args.content !== 'string') throw new Error('"content" must be a string');
+              const path = args.path.replace(/^\.\//, '');
               let result: string;
-              if (tc.function.name === 'read_file') {
-                set({ aiStatus: `📖 Reading ${args.path}...` });
-                result = await executeReadFile(args.path);
+              const pathError = validateToolPath(path);
+              if (pathError) {
+                result = pathError;
+              } else if (tc.function.name === 'read_file') {
+                set({ aiStatus: `📖 Reading ${path}...` });
+                result = await executeReadFile(path);
+                if (isStale()) return;
                 set({ aiStatus: null });
               } else if (tc.function.name === 'write_file') {
+                const oldContent = await readExistingFile(path);
+                if (isStale()) return;
+                // isLoading stays true while waiting, so the input stays locked
                 set({
-                  pendingWrite: { path: args.path, content: args.content },
-                  isLoading: false,
+                  pendingWrite: { path, content: args.content, oldContent },
                   aiStatus: null,
                 });
                 const approved = await new Promise<boolean>((resolve) => {
                   writeResolver = resolve;
                 });
+                if (isStale()) return;
                 if (approved) {
-                  set({ aiStatus: `✏️ Writing ${args.path}...` });
-                  result = await executeWriteFile(args.path, args.content);
-                  set({ aiStatus: null, pendingWrite: null });
+                  set({ pendingWrite: null, aiStatus: `✏️ Writing ${path}...` });
+                  result = await executeWriteFile(path, args.content);
+                  if (isStale()) return;
+                  set({ aiStatus: null });
+                  contextStale = true;
                 } else {
                   result = "The user rejected this write. Tell the user you will not make changes without their approval.";
                   set({ pendingWrite: null });
@@ -577,16 +631,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
             currentMessages = [...currentMessages, { role: 'assistant', content: stripSystemReminder(assistantContent) }];
           }
           set({ messages: currentMessages, isLoading: false });
-          saveToStorage(STORAGE_KEY_MESSAGES, currentMessages);
+          persistMessages(currentMessages);
           return;
         }
       }
 
       set({ messages: currentMessages, isLoading: false });
-      saveToStorage(STORAGE_KEY_MESSAGES, currentMessages);
+      persistMessages(currentMessages);
     } catch (err: any) {
-      set({ chatError: err.message, isLoading: false });
+      if (isStale() || err?.name === 'AbortError') return;
+      set({ chatError: err.message, isLoading: false, pendingWrite: null, aiStatus: null });
+      // Keep a partial answer across reloads
+      persistMessages(get().messages);
+    } finally {
+      if (abortController === controller) abortController = null;
     }
+  },
+
+  stopGeneration: () => {
+    if (!get().isLoading) return;
+    cancelRun();
+    // Keep whatever was streamed so far
+    persistMessages(get().messages);
   },
 
   setModel: (model: string) => {
@@ -595,11 +661,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearChat: () => {
+    cancelRun();
     set({ messages: [], chatError: null, lastUsage: null });
     saveToStorage(STORAGE_KEY_MESSAGES, []);
   },
 
   clearApiKey: () => {
+    cancelRun();
     set({ apiKey: null, messages: [], availableModels: [], chatError: null, lastUsage: null });
     saveToStorage(STORAGE_KEY_API_KEY, null);
     saveToStorage(STORAGE_KEY_MESSAGES, []);
@@ -627,13 +695,3 @@ async function waitForRestore() {
     waited++;
   }
 }
-
-useChatStore.subscribe((state) => {
-  const stripped = state.messages.map((m) => {
-    const content = m.content ? stripSystemReminder(m.content) : m.content;
-    return content !== m.content ? { ...m, content } : m;
-  });
-  if (stripped.some((m, i) => m.content !== state.messages[i]?.content)) {
-    useChatStore.setState({ messages: stripped });
-  }
-});

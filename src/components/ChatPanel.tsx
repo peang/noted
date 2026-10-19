@@ -1,55 +1,69 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useChatStore, Message } from '../store/chatStore';
+import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
+import { useChatStore, Message, stripSystemReminder } from '../store/chatStore';
 import { useNoteStore } from '../store/noteStore';
 import { toast } from 'sonner';
-import { Send, Key, ExternalLink, Trash2, Sparkles, Loader2, FileText, Folder, FileEdit, Check, X } from 'lucide-react';
+import { Send, Square, Key, ExternalLink, Trash2, Sparkles, FileText, Folder, FileEdit, FilePlus, Check, X } from 'lucide-react';
 import { useFileMention } from '../hooks/useFileMention';
 import FileMentionDropdown from './FileMentionDropdown';
-
-function stripSystemReminder(text: string): string {
-  const idx = text.indexOf('<system-reminder>');
-  if (idx !== -1) text = text.slice(0, idx).trim();
-  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
-}
+import { diffLines } from '../utils/lineDiff';
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function getCurrentFilePaths(): string[] {
+let fileLinkCache: { source: unknown; regex: RegExp | null } | null = null;
+
+// One regex for every workspace path, rebuilt only when the file list changes
+function getFileLinkRegex(): RegExp | null {
   const state = useNoteStore.getState();
-  if (state.isSimulated) {
-    return state.simulatedFiles.filter(f => f.kind === 'file').map(f => f.path);
-  }
-  return state.workspacePaths.filter(p => !p.endsWith('/'));
+  const source = state.isSimulated ? state.simulatedFiles : state.workspacePaths;
+  if (fileLinkCache?.source === source) return fileLinkCache.regex;
+
+  const paths = state.isSimulated
+    ? state.simulatedFiles.filter(f => f.kind === 'file').map(f => f.path)
+    : state.workspacePaths.filter(p => !p.endsWith('/'));
+  const alternatives = paths
+    .sort((a, b) => b.length - a.length)
+    .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  // Whole paths only: todo.md must not match inside mytodo.md or archive/todo.md
+  const regex = alternatives.length
+    ? new RegExp(`(?<![\\w./-])(?:${alternatives.join('|')})(?![\\w/-]|\\.\\w)`, 'g')
+    : null;
+  fileLinkCache = { source, regex };
+  return regex;
 }
 
 function renderInline(text: string): string {
-  const filePaths = getCurrentFilePaths();
-
-  let result = text;
+  const regex = getFileLinkRegex();
   const refs: string[] = [];
 
-  const sorted = [...filePaths].sort((a, b) => b.length - a.length);
-  for (const path of sorted) {
-    const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    result = result.replace(new RegExp(escaped, 'g'), () => {
-      refs.push(path);
-      return `\x00FR${refs.length - 1}\x00`;
-    });
-  }
+  let result = regex
+    ? text.replace(regex, (path) => {
+        refs.push(path);
+        return `\x00FR${refs.length - 1}\x00`;
+      })
+    : text;
 
   result = escapeHtml(result)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/~~(.+?)~~/g, '<del>$1</del>');
 
-  for (let i = 0; i < refs.length; i++) {
-    const escapedPath = escapeHtml(refs[i]);
-    result = result.replace(`\x00FR${i}\x00`, `<a class="file-ref-link" data-path="${escapedPath}">${escapedPath}</a>`);
-  }
+  // Function replacement so a path containing $& or $' isn't read as a replacement pattern
+  return result.replace(/\x00FR(\d+)\x00/g, (_, i) => {
+    const escapedPath = escapeHtml(refs[Number(i)]);
+    return `<a class="file-ref-link" data-path="${escapedPath}">${escapedPath}</a>`;
+  });
+}
 
-  return result;
+// Keeps empty cells so columns don't shift
+function splitTableRow(row: string): string[] {
+  return row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
 }
 
 function renderMarkdown(text: string): React.ReactNode[] {
@@ -59,12 +73,12 @@ function renderMarkdown(text: string): React.ReactNode[] {
 
   const flushTable = (i: number) => {
     if (tableRows.length < 2) { els.push(<p key={i}>{tableRows.join('\n')}</p>); tableRows = []; return; }
-    const header = tableRows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+    const header = splitTableRow(tableRows[0]);
     const body = tableRows.slice(2).map(r => {
-      const cells = r.split('|').filter(c => c.trim()).map(c => renderInline(c.trim()));
+      const cells = splitTableRow(r).map(c => renderInline(c));
       return `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
     }).join('');
-    els.push(<table key={i} className="chat-table"><thead><tr>{header.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody dangerouslySetInnerHTML={{ __html: body }} /></table>);
+    els.push(<table key={i} className="chat-table"><thead><tr>{header.map((h, j) => <th key={j}>{h}</th>)}</tr></thead><tbody dangerouslySetInnerHTML={{ __html: body }} /></table>);
     tableRows = [];
   };
 
@@ -111,7 +125,8 @@ function renderMarkdown(text: string): React.ReactNode[] {
   return els;
 }
 
-function MessageBubble({ msg }: { msg: Message }) {
+// Memoized: during streaming only the last message object changes
+const MessageBubble = memo(function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === 'user';
   const content = msg.content ? stripSystemReminder(msg.content) : '';
   return (
@@ -126,6 +141,64 @@ function MessageBubble({ msg }: { msg: Message }) {
         </div>
       )}
     </div>
+  );
+});
+
+const DIFF_CONTEXT_LINES = 2;
+
+function WritePreview({ oldContent, content }: { oldContent: string | null; content: string }) {
+  const lines = useMemo(
+    () => (oldContent === null ? null : diffLines(oldContent, content)),
+    [oldContent, content]
+  );
+  const boxClass = 'text-[10px] font-mono bg-black/30 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-all mb-3';
+
+  if (!lines) {
+    return (
+      <>
+        {oldContent !== null && (
+          <p className="text-[10px] text-yellow-400/80 mb-1">Too large to diff — full new content:</p>
+        )}
+        <pre className={`${boxClass} text-yellow-200/70`}>{content}</pre>
+      </>
+    );
+  }
+
+  const changed = lines.map((l) => l.type !== 'same');
+  const added = lines.filter((l) => l.type === 'add').length;
+  const removed = lines.filter((l) => l.type === 'del').length;
+  if (!added && !removed) {
+    return <p className="text-[10px] text-yellow-400/80 mb-3">No changes.</p>;
+  }
+
+  const rows: React.ReactNode[] = [];
+  let hidden = 0;
+  const flushHidden = (key: string) => {
+    if (hidden) rows.push(<div key={key} className="text-theme-darker">⋯ {hidden} unchanged line{hidden !== 1 ? 's' : ''}</div>);
+    hidden = 0;
+  };
+  lines.forEach((line, i) => {
+    const nearChange = changed.slice(Math.max(0, i - DIFF_CONTEXT_LINES), i + DIFF_CONTEXT_LINES + 1).some(Boolean);
+    if (!nearChange) {
+      hidden++;
+      return;
+    }
+    flushHidden(`gap-${i}`);
+    const style = line.type === 'add' ? 'text-emerald-300 bg-emerald-900/30'
+      : line.type === 'del' ? 'text-red-300 bg-red-900/30 line-through decoration-red-400/40'
+      : 'text-yellow-200/50';
+    const prefix = line.type === 'add' ? '+ ' : line.type === 'del' ? '- ' : '  ';
+    rows.push(<div key={i} className={style}>{prefix}{line.text || ' '}</div>);
+  });
+  flushHidden('gap-end');
+
+  return (
+    <>
+      <p className="text-[10px] font-mono mb-1">
+        <span className="text-emerald-400">+{added}</span> <span className="text-red-400">−{removed}</span>
+      </p>
+      <div className={boxClass}>{rows}</div>
+    </>
   );
 }
 
@@ -195,6 +268,7 @@ function ChatView() {
 
   const pendingWrite = useChatStore((s) => s.pendingWrite);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const stopGeneration = useChatStore((s) => s.stopGeneration);
   const setModel = useChatStore((s) => s.setModel);
   const lastUsage = useChatStore((s) => s.lastUsage);
   const clearChat = useChatStore((s) => s.clearChat);
@@ -206,6 +280,10 @@ function ChatView() {
   const [cursorPos, setCursorPos] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const mention = useFileMention(input, cursorPos);
+  // Escape hides the dropdown for the @ it was opened for, until the user starts a new mention
+  const [dismissedMentionAt, setDismissedMentionAt] = useState<number | null>(null);
+  const mentionOpen = mention.active && mention.start !== dismissedMentionAt;
+  const stickToBottomRef = useRef(true);
 
   const fileCount = workspaceCounts.files;
   const contextLabel = activeTab
@@ -233,11 +311,16 @@ function ChatView() {
   }, [input, cursorPos]);
 
   const handleMentionClose = useCallback(() => {
-    textareaRef.current?.focus();
-  }, []);
+    setDismissedMentionAt(mention.start);
+  }, [mention.start]);
 
   useEffect(() => {
-    if (listRef.current) {
+    if (!mention.active) setDismissedMentionAt(null);
+  }, [mention.active]);
+
+  // Follow new tokens only while the user is at the bottom, so they can scroll up and read
+  useEffect(() => {
+    if (listRef.current && stickToBottomRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages]);
@@ -254,8 +337,13 @@ function ChatView() {
   }, []);
 
   useEffect(() => {
+    if (isLoading) return;
     requestAnimationFrame(() => {
-      textareaRef.current?.focus();
+      // Don't pull the cursor out of the editor when an answer finishes
+      const active = document.activeElement;
+      if (!active || active === document.body || active.closest('[data-chat-panel]')) {
+        textareaRef.current?.focus();
+      }
     });
   }, [isLoading]);
 
@@ -264,6 +352,7 @@ function ChatView() {
     if (!content || isLoading) return;
     setInput('');
     setCursorPos(0);
+    stickToBottomRef.current = true;
     sendMessage(content);
   };
 
@@ -330,6 +419,10 @@ function ChatView() {
 
       {/* Messages */}
       <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 thin-scrollbar space-y-3"
+        onScroll={() => {
+          const el = listRef.current;
+          if (el) stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
         onClick={(e) => {
           const link = (e.target as HTMLElement).closest('.file-ref-link');
           if (link) {
@@ -348,7 +441,7 @@ function ChatView() {
         {visibleMessages(messages).map((msg, i) => (
           <MessageBubble key={i} msg={msg} />
         ))}
-        {isLoading && visibleMessages(messages).length > 0 && (
+        {isLoading && !pendingWrite && visibleMessages(messages).length > 0 && (
           <div className="flex justify-start">
             <div className="bg-theme-card border border-theme-border rounded-lg rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 bg-theme-darker rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -371,15 +464,15 @@ function ChatView() {
       {pendingWrite && (
         <div className="mx-3 my-2 p-3 bg-yellow-950/40 border border-yellow-700/50 rounded-lg">
           <div className="flex items-start gap-2">
-            <FileEdit className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+            {pendingWrite.oldContent === null
+              ? <FilePlus className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+              : <FileEdit className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />}
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-yellow-300 mb-1">AI wants to edit a file</p>
+              <p className="text-xs font-semibold text-yellow-300 mb-1">
+                {pendingWrite.oldContent === null ? 'AI wants to create a file' : 'AI wants to edit a file'}
+              </p>
               <p className="text-[10px] text-yellow-400/80 font-mono mb-2 truncate">{pendingWrite.path}</p>
-              <pre className="text-[10px] text-yellow-200/70 bg-black/30 rounded p-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-all mb-3">
-                {pendingWrite.content.length > 600
-                  ? pendingWrite.content.slice(0, 600) + '...'
-                  : pendingWrite.content}
-              </pre>
+              <WritePreview oldContent={pendingWrite.oldContent} content={pendingWrite.content} />
               <div className="flex gap-2">
                 <button
                   onClick={approveWrite}
@@ -426,12 +519,13 @@ function ChatView() {
               }
             }}
           >
-            {mention.active && (
+            {mentionOpen && (
               <div className="absolute bottom-full left-0 right-0 mb-2 z-50">
                 <FileMentionDropdown
                   searchTerm={mention.searchTerm}
                   onSelect={handleMentionSelect}
                   onClose={handleMentionClose}
+                  inputRef={textareaRef}
                 />
               </div>
             )}
@@ -446,10 +540,8 @@ function ChatView() {
               onClick={(e) => setCursorPos(e.currentTarget.selectionStart)}
               onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart)}
               onKeyDown={(e) => {
-                if (mention.active && ['Enter', 'ArrowUp', 'ArrowDown', 'Escape'].includes(e.key)) {
-                  e.preventDefault();
-                  return;
-                }
+                // The mention dropdown already handled this key
+                if (e.nativeEvent.defaultPrevented) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSend();
@@ -461,12 +553,13 @@ function ChatView() {
               className="flex-1 bg-theme-input border border-theme-border rounded px-3 py-2 text-xs text-theme-text placeholder-theme-darker outline-none focus:border-theme-border-hover read-only:opacity-50 resize-none overflow-y-auto min-h-[32px] max-h-[200px] leading-relaxed"
             />
             <button
-              onClick={handleSend}
-              disabled={!input.trim() || isLoading}
+              onClick={isLoading ? stopGeneration : handleSend}
+              disabled={!isLoading && !input.trim()}
+              title={isLoading ? 'Stop' : 'Send'}
               className="p-2 bg-theme-active hover:bg-theme-hover text-theme-white border border-theme-border rounded cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
             >
               {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Square className="w-4 h-4 fill-current" />
               ) : (
                 <Send className="w-4 h-4" />
               )}
@@ -488,7 +581,7 @@ export default function ChatPanel() {
   }, []);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
+    <div data-chat-panel className="flex-1 flex flex-col h-full overflow-hidden">
       {apiKey ? <ChatView /> : <ApiKeySetup />}
     </div>
   );

@@ -6,8 +6,21 @@ export default {
       const path = url.pathname.replace(/^\/api\/opencode\/?/, '');
       const target = `https://opencode.ai/zen/go/v1/${path}${url.search}`;
 
-      const headers = new Headers(request.headers);
-      headers.set('Host', 'opencode.ai');
+      // Only this app's own pages may use the proxy
+      const origin = request.headers.get('Origin');
+      if (origin && origin !== url.origin) {
+        return new Response(JSON.stringify({ error: 'Forbidden origin' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Forward only what the API needs — never this site's cookies
+      const headers = new Headers();
+      for (const name of ['Authorization', 'Content-Type', 'Accept', 'x-opencode-session']) {
+        const value = request.headers.get(name);
+        if (value) headers.set(name, value);
+      }
       headers.set('User-Agent', 'noted/1.0');
 
       try {

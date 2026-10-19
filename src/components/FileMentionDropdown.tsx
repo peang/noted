@@ -12,6 +12,8 @@ interface FileMentionDropdownProps {
   searchTerm: string;
   onSelect: (path: string) => void;
   onClose: () => void;
+  // Keys are only handled while this input has focus
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 function getMatchScore(entry: FileEntry, term: string): number {
@@ -37,7 +39,7 @@ function parentPathFromPath(path: string): string {
   return idx === -1 ? '' : path.slice(0, idx);
 }
 
-export default function FileMentionDropdown({ searchTerm, onSelect, onClose }: FileMentionDropdownProps) {
+export default function FileMentionDropdown({ searchTerm, onSelect, onClose, inputRef }: FileMentionDropdownProps) {
   const isSimulated = useNoteStore((s) => s.isSimulated);
   const simulatedFiles = useNoteStore((s) => s.simulatedFiles);
   const workspacePaths = useNoteStore((s) => s.workspacePaths);
@@ -101,6 +103,8 @@ export default function FileMentionDropdown({ searchTerm, onSelect, onClose }: F
         onClose();
         return;
       }
+      // With no matches, let Enter/arrows behave normally (Enter sends the message)
+      if (filtered.length === 0) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setHighlightIdx((prev) => Math.min(prev + 1, filtered.length - 1));
@@ -111,17 +115,16 @@ export default function FileMentionDropdown({ searchTerm, onSelect, onClose }: F
         setHighlightIdx((prev) => Math.max(prev - 1, 0));
         return;
       }
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' && filtered[highlightIdx]) {
         e.preventDefault();
-        if (filtered[highlightIdx]) {
-          onSelect(filtered[highlightIdx].path);
-        }
-        return;
+        onSelect(filtered[highlightIdx].path);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filtered, highlightIdx, onSelect, onClose]);
+    // Native listener on the input runs before React's onKeyDown, which checks defaultPrevented
+    const input = inputRef.current;
+    input?.addEventListener('keydown', handleKeyDown);
+    return () => input?.removeEventListener('keydown', handleKeyDown);
+  }, [filtered, highlightIdx, onSelect, onClose, inputRef]);
 
   const displayName = (name: string) => {
     if (name.endsWith('.md')) return name.replace(/\.md$/, '');
