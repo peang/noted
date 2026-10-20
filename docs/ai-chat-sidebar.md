@@ -138,7 +138,16 @@ Stay as floating button in main workspace (top-right). Click toggles right sideb
 
 ## Tools
 
-`list_files` (last-modified dates, optional `folder` and `modified_within_days`), `read_file`, `write_file` (needs approval, shows a diff). The last round is sent without tools plus a nudge so the model has to answer. Some models write tool calls as `<｜DSML｜invoke …>` text; that is parsed into real tool calls and hidden from the chat.
+| Tool | What it does | Approval |
+|---|---|---|
+| `list_files` | Files with last-modified dates, optional `folder` / `modified_within_days` | no |
+| `search_files` | Case-insensitive text search over all files (`path:line: text`, max 60 hits), optional `folder` / `regex` | no |
+| `read_file` | Full content of one file | no |
+| `write_file` | Create or replace a file; the card shows a diff | yes |
+| `move_files` | Rename/move a batch of files (max 100), creating folders; rewrites `[[wikilinks]]` to them unless `update_links: false` | yes, once per batch |
+| `delete_files` | Delete files or folders (max 50, refuses more than half the workspace); the card counts the links that will break | yes, once per batch |
+
+Wikilinks: `[[Name]]`, `[[folder/Name]]`, `[[Name|alias]]`, `[[Name#heading]]` and `![[embed]]`, with or without `.md`, are matched like Obsidian (a bare name matches by file name, the note in the same folder wins). A bare link stays bare unless the new name would be ambiguous; alias and heading are kept. Folders can't be moved yet. The batch logic is in `chatTools.ts`. The last round is sent without tools plus a nudge so the model has to answer. Some models write tool calls as `<｜DSML｜invoke …>` text; that is parsed into real tool calls and hidden from the chat.
 
 ## Layout
 

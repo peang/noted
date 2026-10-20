@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from '
 import { useChatStore, Message, stripSystemReminder } from '../store/chatStore';
 import { useNoteStore } from '../store/noteStore';
 import { toast } from 'sonner';
-import { ArrowUp, ArrowDown, Square, Key, KeyRound, ExternalLink, Sparkles, FileText, FileEdit, FilePlus, Check, X, Copy, History, SquarePen, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowUp, ArrowDown, Square, Trash2, FolderInput, Key, KeyRound, ExternalLink, Sparkles, FileText, FileEdit, FilePlus, Check, X, Copy, History, SquarePen, AlertCircle, Loader2 } from 'lucide-react';
 import { useFileMention } from '../hooks/useFileMention';
 import FileMentionDropdown from './FileMentionDropdown';
 import ModelPicker from './chat/ModelPicker';
@@ -270,6 +270,59 @@ function PendingWriteCard() {
   );
 }
 
+function PendingActionCard() {
+  const action = useChatStore((s) => s.pendingAction);
+  const approveWrite = useChatStore((s) => s.approveWrite);
+  const rejectWrite = useChatStore((s) => s.rejectWrite);
+  if (!action) return null;
+  const isDelete = action.kind === 'delete';
+  const tone = isDelete ? 'border-red-500/30 bg-red-500/5' : 'border-amber-500/30 bg-amber-500/5';
+  const divider = isDelete ? 'border-red-500/20' : 'border-amber-500/20';
+  const count = action.items.length;
+  const title = isDelete
+    ? `Delete ${count} item${count !== 1 ? 's' : ''}?`
+    : `Move ${count} file${count !== 1 ? 's' : ''}?`;
+
+  return (
+    <div className={`mx-3 mb-2 shrink-0 rounded-xl border overflow-hidden ${tone}`}>
+      <div className={`flex items-center gap-2.5 px-3 py-2 border-b ${divider}`}>
+        {isDelete
+          ? <Trash2 className="w-4 h-4 text-red-500 shrink-0" />
+          : <FolderInput className="w-4 h-4 text-amber-500 shrink-0" />}
+        <p className="flex-1 text-xs font-semibold text-theme-white">{title}</p>
+      </div>
+      <ul className="px-3 pt-2.5 max-h-48 overflow-y-auto thin-scrollbar space-y-1.5 text-[11px] font-mono">
+        {action.items.map((item, i) => (
+          <li key={i} className="min-w-0">
+            <span className={`block truncate ${isDelete ? 'text-red-500' : 'text-theme-muted line-through decoration-theme-darker'}`} title={item.label}>
+              {item.label}
+            </span>
+            {item.detail && (
+              <span className={`block truncate ${isDelete ? 'text-theme-darker' : 'text-emerald-500'}`} title={item.detail}>
+                {isDelete ? item.detail : `→ ${item.detail}`}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div className="px-3 pt-2.5 space-y-1">
+        {action.notes.map((note) => (
+          <p key={note} className="text-[11px] text-theme-muted">{note}</p>
+        ))}
+        {action.warning && <p className="text-[11px] font-medium text-red-500">{action.warning}</p>}
+      </div>
+      <div className="flex justify-end gap-2 px-3 py-2.5">
+        <Button variant="secondary" onClick={rejectWrite}>
+          <X className="w-3.5 h-3.5" /> Reject
+        </Button>
+        <Button variant={isDelete ? 'danger' : 'primary'} className={isDelete ? 'border border-red-500/40' : ''} onClick={approveWrite}>
+          <Check className="w-3.5 h-3.5" /> {isDelete ? 'Delete' : 'Approve'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function visibleMessages(messages: Message[]): Message[] {
   return messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content !== null);
 }
@@ -373,6 +426,7 @@ function ChatView() {
   const workspaceCounts = useNoteStore((s) => s.workspaceCounts);
 
   const pendingWrite = useChatStore((s) => s.pendingWrite);
+  const pendingAction = useChatStore((s) => s.pendingAction);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const stopGeneration = useChatStore((s) => s.stopGeneration);
   const setModel = useChatStore((s) => s.setModel);
@@ -392,7 +446,7 @@ function ChatView() {
   const visible = visibleMessages(messages);
   const lastVisible = visible[visible.length - 1];
   // Dots only until the first token arrives; after that the streamed text is the feedback
-  const showThinking = isLoading && !pendingWrite && (!!aiStatus || lastVisible?.role === 'user');
+  const showThinking = isLoading && !pendingWrite && !pendingAction && (!!aiStatus || lastVisible?.role === 'user');
 
   const handleMentionSelect = useCallback((path: string) => {
     const textBefore = input.slice(0, cursorPos);
@@ -545,6 +599,7 @@ function ChatView() {
       </div>
 
       <PendingWriteCard />
+      <PendingActionCard />
 
       {/* Composer */}
       <div className="px-3 pb-3 pt-1 shrink-0">

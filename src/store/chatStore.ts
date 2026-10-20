@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { useNoteStore, buildTreeFromPaths, getFilesRecursively, filterRealFileTree } from './noteStore';
+import { useNoteStore } from './noteStore';
+import {
+  PendingAction, validateToolPath, readExistingFile, executeWriteFile,
+  executeSearchFiles, planMoves, runMoves, planDeletes, runDeletes,
+} from './chatTools';
+
+export type { PendingAction } from './chatTools';
 
 export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -32,6 +38,8 @@ interface ChatState {
   aiStatus: string | null;
   // oldContent is null when the AI is creating a new file
   pendingWrite: { path: string; content: string; oldContent: string | null } | null;
+  // A batch move or delete waiting for the user's approval
+  pendingAction: PendingAction | null;
 
   setApiKey: (key: string) => Promise<void>;
   clearApiKey: () => void;
@@ -232,85 +240,10 @@ async function buildWorkspaceContext(userMessage?: string): Promise<string> {
   }
 
   parts.push(`Today's date is ${new Date().toLocaleDateString('sv-SE')}.`);
-  parts.push('You have tools `list_files`, `read_file` and `write_file`. To find files by date or folder (for example "files changed this week"), use list_files — do NOT read files one by one to guess. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to create a new file or update an existing one. write_file replaces the whole file, so read_file first and always send the complete content.');
+  parts.push('You have tools `list_files`, `search_files`, `read_file`, `write_file`, `move_files` and `delete_files`. To find files by date or folder (for example "files changed this week"), use list_files, and to find where something is mentioned use search_files — do NOT read files one by one to guess. To rename or move files use move_files (it fixes [[wikilinks]] and the user approves the whole batch once); never create a copy with write_file and leave the old file. Use delete_files only when the user asks for deletion; plan many changes as one batch call. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to create a new file or update an existing one. write_file replaces the whole file, so read_file first and always send the complete content.');
   parts.push('Be brief and direct. No pleasantries, no disclaimers, no explanations. Just answer the question and stop. Answer based only on the notes provided.');
 
   return parts.join('\n');
-}
-
-// Tool paths come from the model: keep them relative, inside the workspace and away from hidden files
-function validateToolPath(path: string): string | null {
-  const parts = path.split('/');
-  if (path.startsWith('/') || parts.some((p) => !p || p === '.' || p === '..' || p.startsWith('.'))) {
-    return `Error: Invalid path "${path}". Use a relative path to a visible file in the workspace.`;
-  }
-  return null;
-}
-
-// Returns null when the file doesn't exist
-async function readExistingFile(path: string): Promise<string | null> {
-  const { isSimulated, simulatedFiles, rootHandle } = useNoteStore.getState();
-  if (isSimulated) {
-    const file = simulatedFiles.find((f) => f.path === path && f.kind === 'file');
-    return file ? file.content || '' : null;
-  }
-  if (!rootHandle) return null;
-  try {
-    const parts = path.split('/');
-    const fileName = parts.pop()!;
-    let dirHandle = rootHandle;
-    for (const part of parts) {
-      dirHandle = await dirHandle.getDirectoryHandle(part);
-    }
-    const file = await (await dirHandle.getFileHandle(fileName)).getFile();
-    return await file.text();
-  } catch {
-    return null;
-  }
-}
-
-async function executeWriteFile(path: string, content: string): Promise<string> {
-  const state = useNoteStore.getState();
-  const { isSimulated, simulatedFiles, rootHandle } = state;
-
-  if (isSimulated) {
-    const idx = simulatedFiles.findIndex((f) => f.path === path);
-    const newFiles = idx >= 0
-      ? simulatedFiles.map((f, i) => i === idx ? { ...f, content } : f)
-      : [...simulatedFiles, { path, kind: 'file' as const, content }];
-    const tree = buildTreeFromPaths(newFiles, state.collapsedFolders, state.searchQuery);
-    const updates: Record<string, any> = { simulatedFiles: newFiles, fileTree: tree };
-    if (state.activeTab === path) updates.activeContent = content;
-    useNoteStore.setState(updates);
-    return `Written "${path}".`;
-  }
-
-  if (!rootHandle) return 'Error: No root folder open.';
-
-  try {
-    const parts = path.split('/');
-    const fileName = parts.pop();
-    if (!fileName) return `Error: Invalid path "${path}".`;
-
-    let dirHandle = rootHandle;
-    for (const part of parts) {
-      dirHandle = await dirHandle.getDirectoryHandle(part, { create: true });
-    }
-
-    const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(content);
-    await writable.close();
-
-    const tree = await getFilesRecursively(rootHandle, '', state.collapsedFolders);
-    const updates2: Record<string, any> = { fileTree: filterRealFileTree(tree, state.searchQuery) };
-    if (state.activeTab === path) updates2.activeContent = content;
-    useNoteStore.setState(updates2);
-
-    return `Written "${path}".`;
-  } catch (e: any) {
-    return `Error writing "${path}": ${e.message}`;
-  }
 }
 
 async function executeReadFile(path: string): Promise<string> {
@@ -439,6 +372,65 @@ const LIST_FILES_TOOL = {
   },
 };
 
+const SEARCH_FILES_TOOL = {
+  type: 'function',
+  function: {
+    name: 'search_files',
+    description: 'Search the text of every file in the workspace (case-insensitive) and return matching lines as "path:line: text". Use it to find where something is mentioned, including [[wikilinks]], instead of reading files one by one.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Text to look for, e.g. "[[Meeting Notes" or "TODO"' },
+        folder: { type: 'string', description: 'Only search inside this folder (optional)' },
+        regex: { type: 'boolean', description: 'Treat query as a regular expression (optional, default false)' },
+      },
+      required: ['query'],
+    },
+  },
+};
+
+const MOVE_FILES_TOOL = {
+  type: 'function',
+  function: {
+    name: 'move_files',
+    description: 'Rename or move files (not folders). Missing folders are created. By default every [[wikilink]] that points at a moved file is rewritten, so nothing breaks. The user approves the whole batch once. Prefer this over write_file for renames: never create a copy and leave the old file behind.',
+    parameters: {
+      type: 'object',
+      properties: {
+        moves: {
+          type: 'array',
+          description: 'Moves to make, e.g. [{"from": "Inbox/a.md", "to": "Projects/a.md"}]',
+          items: {
+            type: 'object',
+            properties: {
+              from: { type: 'string', description: 'Current path' },
+              to: { type: 'string', description: 'New path, including the file name' },
+            },
+            required: ['from', 'to'],
+          },
+        },
+        update_links: { type: 'boolean', description: 'Rewrite [[wikilinks]] to the moved files (default true)' },
+      },
+      required: ['moves'],
+    },
+  },
+};
+
+const DELETE_FILES_TOOL = {
+  type: 'function',
+  function: {
+    name: 'delete_files',
+    description: 'Delete files or whole folders. Only do this when the user asked for it. The user approves the batch once and sees what will be removed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        paths: { type: 'array', items: { type: 'string' }, description: 'Files or folders to delete' },
+      },
+      required: ['paths'],
+    },
+  },
+};
+
 const READ_FILE_TOOL = {
   type: 'function',
   function: {
@@ -509,7 +501,7 @@ function cancelRun() {
     writeResolver(false);
     writeResolver = null;
   }
-  useChatStore.setState({ isLoading: false, pendingWrite: null, aiStatus: null });
+  useChatStore.setState({ isLoading: false, pendingWrite: null, pendingAction: null, aiStatus: null });
 }
 
 export function workspaceKeyOf(s: { isSimulated: boolean; folderName: string }): string {
@@ -650,6 +642,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   lastUsage: null,
   aiStatus: null,
   pendingWrite: null,
+  pendingAction: null,
 
   setApiKey: async (key: string) => {
     set({ chatError: null });
@@ -744,7 +737,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               tool_calls: m.tool_calls,
               tool_call_id: m.tool_call_id,
             })),
-            ...(allowTools ? { tools: [LIST_FILES_TOOL, READ_FILE_TOOL, WRITE_FILE_TOOL] } : {}),
+            ...(allowTools ? { tools: [LIST_FILES_TOOL, SEARCH_FILES_TOOL, READ_FILE_TOOL, WRITE_FILE_TOOL, MOVE_FILES_TOOL, DELETE_FILES_TOOL] } : {}),
             stream: true,
           }),
           signal: controller.signal,
@@ -859,6 +852,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
           for (const tc of Array.from(toolCalls.values())) {
             try {
               const args = JSON.parse(tc.function.arguments);
+              if (tc.function.name === 'search_files') {
+                set({ aiStatus: '🔎 Searching files...' });
+                const found = await executeSearchFiles(args?.query, args?.folder, args?.regex);
+                if (isStale()) return;
+                set({ aiStatus: null });
+                currentMessages = [...currentMessages, { role: 'tool', tool_call_id: tc.id, content: found }];
+                continue;
+              }
+              if (tc.function.name === 'move_files' || tc.function.name === 'delete_files') {
+                const isMove = tc.function.name === 'move_files';
+                set({ aiStatus: isMove ? '📦 Checking moves...' : '🗑 Checking files...' });
+                const updateLinks = args?.update_links !== false;
+                const planned = isMove
+                  ? await planMoves(args?.moves, updateLinks).then((r) => ('error' in r ? r : { action: r.action, run: () => runMoves(r.plan) }))
+                  : await planDeletes(args?.paths).then((r) => ('error' in r ? r : { action: r.action, run: () => runDeletes(r.plan) }));
+                if (isStale()) return;
+                let result: string;
+                if ('error' in planned) {
+                  result = planned.error;
+                } else {
+                  // isLoading stays true while waiting, so the input can't start a second run
+                  set({ pendingAction: planned.action, aiStatus: null });
+                  const approved = await new Promise<boolean>((resolve) => {
+                    writeResolver = resolve;
+                  });
+                  if (isStale()) return;
+                  set({ pendingAction: null });
+                  if (approved) {
+                    set({ aiStatus: isMove ? '📦 Moving files...' : '🗑 Deleting...' });
+                    result = await planned.run();
+                    if (isStale()) return;
+                    set({ aiStatus: null });
+                    contextStale = true;
+                  } else {
+                    result = 'The user rejected this change. Tell the user you will not make changes without their approval.';
+                  }
+                }
+                currentMessages = [...currentMessages, { role: 'tool', tool_call_id: tc.id, content: result }];
+                continue;
+              }
               if (tc.function.name === 'list_files') {
                 set({ aiStatus: '🗂 Listing files...' });
                 const listing = await executeListFiles(
@@ -933,7 +966,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       persistMessages(currentMessages);
     } catch (err: any) {
       if (isStale() || err?.name === 'AbortError') return;
-      set({ chatError: err.message, isLoading: false, pendingWrite: null, aiStatus: null });
+      set({ chatError: err.message, isLoading: false, pendingWrite: null, pendingAction: null, aiStatus: null });
       // Keep a partial answer across reloads
       persistMessages(get().messages);
     } finally {
