@@ -632,6 +632,17 @@ function ChatView() {
             </div>
           )}
           <div className="rounded-2xl border border-theme-border bg-theme-input focus-within:border-theme-border-hover transition-colors shadow-sm">
+            {activeTab && (
+              <div className="px-3 pt-2.5">
+                <span
+                  className="inline-flex max-w-full items-center gap-1.5 h-6 px-2 rounded-md bg-theme-active border border-theme-border text-[11px] text-theme-muted"
+                  title={`Open file: ${activeTab} · ${workspaceCounts.files} file${workspaceCounts.files !== 1 ? 's' : ''} in workspace`}
+                >
+                  <FileText className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{activeTab.split('/').pop()}</span>
+                </span>
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
@@ -658,24 +669,20 @@ function ChatView() {
               rows={1}
               className="w-full bg-transparent px-3.5 pt-3 pb-1 text-[13px] text-theme-text placeholder-theme-darker outline-none resize-none overflow-y-auto min-h-[44px] max-h-[200px] leading-relaxed"
             />
-            <div className="flex items-center gap-1 px-2 pb-2">
-              <ModelPicker value={model} models={availableModels} onChange={setModel} disabled={isLoading} />
-              {activeTab && (
-                <span
-                  className="flex items-center gap-1 min-w-0 px-1.5 text-[11px] text-theme-darker"
-                  title={`Open file: ${activeTab} · ${workspaceCounts.files} file${workspaceCounts.files !== 1 ? 's' : ''} in workspace`}
-                >
-                  <FileText className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{activeTab.split('/').pop()}</span>
-                </span>
-              )}
-              <div className="flex-1" />
+            <div className="flex items-center gap-2 px-2 pb-2">
+              <div className="flex-1 min-w-0">
+                <ModelPicker value={model} models={availableModels} onChange={setModel} disabled={isLoading} />
+              </div>
               {lastUsage && !isLoading && (
                 <span
-                  className="hidden sm:block text-[10px] text-theme-darker font-mono tabular-nums mr-1"
-                  title={lastUsage.reasoning > 0 ? `${(lastUsage.reasoning / 1000).toFixed(1)}k reasoning tokens` : undefined}
+                  className="shrink-0 whitespace-nowrap rounded-md bg-theme-active px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-theme-darker"
+                  title={[
+                    `${lastUsage.prompt.toLocaleString()} tokens in (the context sent)`,
+                    `${lastUsage.completion.toLocaleString()} tokens out`,
+                    lastUsage.reasoning > 0 ? `${lastUsage.reasoning.toLocaleString()} of them reasoning` : '',
+                  ].filter(Boolean).join('\n')}
                 >
-                  {(lastUsage.prompt / 1000).toFixed(1)}k in · {(lastUsage.completion / 1000).toFixed(1)}k out
+                  {(lastUsage.prompt / 1000).toFixed(1)}k ctx
                 </span>
               )}
               <button
@@ -696,7 +703,7 @@ function ChatView() {
           </div>
         </div>
         <p className="mt-1.5 text-center text-[10px] text-theme-darker select-none">
-          Enter to send · Shift+Enter for a new line · @ to mention a file
+          Enter to send · Shift+Enter new line · @ mention a file
         </p>
       </div>
     </>

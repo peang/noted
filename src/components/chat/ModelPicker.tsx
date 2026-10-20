@@ -105,7 +105,7 @@ export default function ModelPicker({ value, models, onChange, disabled }: Model
         aria-haspopup="listbox"
         aria-expanded={open}
         title="Choose model"
-        className="flex items-center gap-1 h-7 pl-2 pr-1.5 max-w-full rounded-md text-[11px] font-mono text-theme-muted hover:text-theme-white hover:bg-theme-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+        className="flex items-center gap-1 h-7 pl-2 pr-1.5 max-w-full whitespace-nowrap rounded-md text-[11px] font-mono text-theme-muted hover:text-theme-white hover:bg-theme-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <span className="truncate">{value}</span>
         <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
