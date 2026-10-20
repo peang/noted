@@ -240,7 +240,7 @@ async function buildWorkspaceContext(userMessage?: string): Promise<string> {
   }
 
   parts.push(`Today's date is ${new Date().toLocaleDateString('sv-SE')}.`);
-  parts.push('You have tools `list_files`, `search_files`, `read_file`, `write_file`, `move_files` and `delete_files`. To find files by date or folder (for example "files changed this week"), use list_files, and to find where something is mentioned use search_files — do NOT read files one by one to guess. To rename or move files use move_files (it fixes [[wikilinks]] and the user approves the whole batch once); never create a copy with write_file and leave the old file. Use delete_files only when the user asks for deletion; plan many changes as one batch call. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to create a new file or update an existing one. write_file replaces the whole file, so read_file first and always send the complete content.');
+  parts.push('You have tools `list_files`, `search_files`, `read_file`, `write_file`, `move_files` and `delete_files`. To find files by date or folder (for example "files changed this week"), use list_files, and to find where something is mentioned use search_files — do NOT read files one by one to guess. To rename or move files use move_files (it fixes [[wikilinks]] and markdown links, so do not edit links by hand afterwards, and the user approves the whole batch once); never create a copy with write_file and leave the old file. Use delete_files only when the user asks for deletion; plan many changes as one batch call. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to create a new file or update an existing one. write_file replaces the whole file, so read_file first and always send the complete content.');
   parts.push('Be brief and direct. No pleasantries, no disclaimers, no explanations. Just answer the question and stop. Answer based only on the notes provided.');
 
   return parts.join('\n');
@@ -393,7 +393,7 @@ const MOVE_FILES_TOOL = {
   type: 'function',
   function: {
     name: 'move_files',
-    description: 'Rename or move files (not folders). Missing folders are created. By default every [[wikilink]] that points at a moved file is rewritten, so nothing breaks. The user approves the whole batch once. Prefer this over write_file for renames: never create a copy and leave the old file behind.',
+    description: 'Rename or move files (not folders). Missing folders are created. By default every link that points at a moved file is rewritten ([[wikilinks]] and markdown [text](path) links, also the relative links inside moved notes), so nothing breaks. The user approves the whole batch once. Prefer this over write_file for renames: never create a copy and leave the old file behind.',
     parameters: {
       type: 'object',
       properties: {
@@ -409,7 +409,7 @@ const MOVE_FILES_TOOL = {
             required: ['from', 'to'],
           },
         },
-        update_links: { type: 'boolean', description: 'Rewrite [[wikilinks]] to the moved files (default true)' },
+        update_links: { type: 'boolean', description: 'Rewrite links to the moved files (default true)' },
       },
       required: ['moves'],
     },

@@ -144,10 +144,10 @@ Stay as floating button in main workspace (top-right). Click toggles right sideb
 | `search_files` | Case-insensitive text search over all files (`path:line: text`, max 60 hits), optional `folder` / `regex` | no |
 | `read_file` | Full content of one file | no |
 | `write_file` | Create or replace a file; the card shows a diff | yes |
-| `move_files` | Rename/move a batch of files (max 100), creating folders; rewrites `[[wikilinks]]` to them unless `update_links: false` | yes, once per batch |
+| `move_files` | Rename/move a batch of files (max 100), creating folders; rewrites `[[wikilinks]]` and markdown `[text](path)` links unless `update_links: false` | yes, once per batch |
 | `delete_files` | Delete files or folders (max 50, refuses more than half the workspace); the card counts the links that will break | yes, once per batch |
 
-Wikilinks: `[[Name]]`, `[[folder/Name]]`, `[[Name|alias]]`, `[[Name#heading]]` and `![[embed]]`, with or without `.md`, are matched like Obsidian (a bare name matches by file name, the note in the same folder wins). A bare link stays bare unless the new name would be ambiguous; alias and heading are kept. Folders can't be moved yet. The batch logic is in `chatTools.ts`. The last round is sent without tools plus a nudge so the model has to answer. Some models write tool calls as `<｜DSML｜invoke …>` text; that is parsed into real tool calls and hidden from the chat.
+Wikilinks: `[[Name]]`, `[[folder/Name]]`, `[[Name|alias]]`, `[[Name#heading]]` and `![[embed]]`, with or without `.md`, are matched like Obsidian (a bare name matches by file name, the note in the same folder wins). A bare link stays bare unless the new name would be ambiguous; alias and heading are kept. Markdown links `[text](path)` / `![alt](path)` are resolved relative to the note (then to the workspace root), `%20`-encoded or `<angle>` form, with or without `.md`; web links, `#anchors` and unknown targets are left alone. Because they are relative, links *inside* a moved note are recomputed too; `#heading` and `"title"` are kept. Folders can't be moved yet. The batch logic is in `chatTools.ts`. The last round is sent without tools plus a nudge so the model has to answer. Some models write tool calls as `<｜DSML｜invoke …>` text; that is parsed into real tool calls and hidden from the chat.
 
 ## Layout
 

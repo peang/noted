@@ -197,6 +197,93 @@ function resolveLink(index: LinkIndex, target: string, fromPath: string): string
     ?? [...candidates].sort((a, b) => a.length - b.length)[0];
 }
 
+// ---------------------------------------------------------------- markdown links
+
+// [text](target), ![alt](target), [text](<target with spaces>), optional "title".
+// Group 1 is "[text]", group 2 the target, group 3 the title part.
+const MARKDOWN_LINK = /(!?\[(?:[^\]\n\\]|\\.)*\])\((<[^>\n]+>|[^)\s]+)((?:\s+(?:"[^"\n]*"|'[^'\n]*'))?)\)/g;
+
+function dirOf(path: string): string {
+  return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+}
+
+// Collapses "." and ".." segments; null when the path climbs out of the workspace
+function normalizePath(path: string): string | null {
+  const out: string[] = [];
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      if (!out.length) return null;
+      out.pop();
+    } else {
+      out.push(part);
+    }
+  }
+  return out.join('/') || null;
+}
+
+function relativePath(fromDir: string, to: string): string {
+  const from = fromDir ? fromDir.split('/') : [];
+  const target = to.split('/');
+  let shared = 0;
+  while (shared < from.length && shared < target.length - 1 && from[shared] === target[shared]) shared++;
+  return [...Array(from.length - shared).fill('..'), ...target.slice(shared)].join('/');
+}
+
+function encodeSegments(path: string): string {
+  const map: Record<string, string> = { ' ': '%20', '%': '%25', '(': '%28', ')': '%29', '<': '%3C', '>': '%3E' };
+  return path.split('/').map((seg) => seg.replace(/[ %()<>]/g, (c) => map[c])).join('/');
+}
+
+interface MarkdownTarget {
+  file: string;
+  // Relative to the linking note (the usual case) or to the workspace root
+  base: 'relative' | 'root';
+  // false when the link left out ".md"
+  hadExtension: boolean;
+}
+
+// Finds the workspace file a markdown link points at; null for web links, anchors and unknown targets
+function resolveMarkdownTarget(rawPath: string, fromPath: string, files: Set<string>): MarkdownTarget | null {
+  if (!rawPath || rawPath.startsWith('#') || rawPath.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(rawPath)) return null;
+  let decoded = rawPath;
+  try {
+    decoded = decodeURIComponent(rawPath);
+  } catch {
+    // Not valid percent-encoding: use the text as written
+  }
+  const bases: { dir: string; base: 'relative' | 'root' }[] = decoded.startsWith('/')
+    ? [{ dir: '', base: 'root' }]
+    : [{ dir: dirOf(fromPath), base: 'relative' }, { dir: '', base: 'root' }];
+  for (const { dir, base } of bases) {
+    const joined = normalizePath(dir ? `${dir}/${decoded}` : decoded);
+    if (!joined) continue;
+    if (files.has(joined)) return { file: joined, base, hadExtension: true };
+    if (files.has(`${joined}.md`)) return { file: `${joined}.md`, base, hadExtension: false };
+  }
+  return null;
+}
+
+function splitSuffix(target: string): { path: string; suffix: string } {
+  const at = target.search(/[#?]/);
+  return at === -1 ? { path: target, suffix: '' } : { path: target.slice(0, at), suffix: target.slice(at) };
+}
+
+// Calls visit for every markdown link that resolves to a workspace file
+function eachMarkdownLink(
+  text: string,
+  fromPath: string,
+  files: Set<string>,
+  visit: (link: { match: string; label: string; angle: boolean; rawPath: string; suffix: string; title: string; target: MarkdownTarget }) => string,
+): string {
+  return text.replace(MARKDOWN_LINK, (match, label: string, dest: string, title: string) => {
+    const angle = dest.startsWith('<');
+    const { path: rawPath, suffix } = splitSuffix(angle ? dest.slice(1, -1) : dest);
+    const target = resolveMarkdownTarget(rawPath, fromPath, files);
+    return target ? visit({ match, label, angle, rawPath, suffix, title, target }) : match;
+  });
+}
+
 function planLinkUpdates(
   moves: Map<string, string>,
   contents: Map<string, string>,
@@ -204,12 +291,14 @@ function planLinkUpdates(
 ): { updates: Map<string, string>; links: number } {
   const before = buildLinkIndex(pathsBefore);
   const after = buildLinkIndex(pathsBefore.map((p) => moves.get(p) ?? p));
+  const filesBefore = new Set(pathsBefore);
   const updates = new Map<string, string>();
   let links = 0;
 
   for (const [path, text] of contents) {
     let changed = false;
-    const next = text.replace(WIKILINK, (match, target: string, rest: string) => {
+    const finalPath = moves.get(path) ?? path;
+    const withWikilinks = text.replace(WIKILINK, (match, target: string, rest: string) => {
       const resolved = resolveLink(before, target, path);
       const destination = resolved ? moves.get(resolved) : undefined;
       if (!destination) return match;
@@ -223,6 +312,24 @@ function planLinkUpdates(
       links++;
       return `[[${newTarget}${rest}]]`;
     });
+
+    // Markdown links are relative to the note, so they break when the note moves as well as when the target does
+    const next = eachMarkdownLink(withWikilinks, path, filesBefore, (link) => {
+      const newFile = moves.get(link.target.file) ?? link.target.file;
+      if (newFile === link.target.file && finalPath === path) return link.match;
+
+      let newPath = link.target.base === 'root'
+        ? (link.rawPath.startsWith('/') ? '/' : '') + newFile
+        : relativePath(dirOf(finalPath), newFile);
+      if (!link.target.hadExtension) newPath = newPath.replace(/\.md$/i, '');
+      if (!link.angle) newPath = encodeSegments(newPath);
+      const newDest = link.angle ? `<${newPath}${link.suffix}>` : `${newPath}${link.suffix}`;
+      const oldDest = link.angle ? `<${link.rawPath}${link.suffix}>` : `${link.rawPath}${link.suffix}`;
+      if (newDest === oldDest) return link.match;
+      changed = true;
+      links++;
+      return `${link.label}(${newDest}${link.title})`;
+    });
     if (changed) updates.set(path, next);
   }
   return { updates, links };
@@ -230,6 +337,7 @@ function planLinkUpdates(
 
 function countInboundLinks(deleted: Set<string>, contents: Map<string, string>, allPaths: string[]): { links: number; notes: number } {
   const index = buildLinkIndex(allPaths);
+  const files = new Set(allPaths);
   let links = 0;
   let notes = 0;
   for (const [path, text] of contents) {
@@ -239,6 +347,10 @@ function countInboundLinks(deleted: Set<string>, contents: Map<string, string>, 
       const resolved = resolveLink(index, m[1], path);
       if (resolved && deleted.has(resolved)) hit++;
     }
+    eachMarkdownLink(text, path, files, (link) => {
+      if (deleted.has(link.target.file)) hit++;
+      return link.match;
+    });
     if (hit) {
       links += hit;
       notes++;
@@ -369,9 +481,9 @@ export async function planMoves(raw: unknown, updateLinks: boolean): Promise<{ e
   const notes = [
     updateLinks
       ? linkCount > 0
-        ? `${linkCount} wikilink${linkCount !== 1 ? 's' : ''} in ${linkNotes} note${linkNotes !== 1 ? 's' : ''} will be updated.`
-        : 'No wikilinks point at these files.'
-      : 'Wikilinks will not be updated.',
+        ? `${linkCount} link${linkCount !== 1 ? 's' : ''} in ${linkNotes} note${linkNotes !== 1 ? 's' : ''} will be updated.`
+        : 'No links point at these files.'
+      : 'Links will not be updated.',
   ];
   return {
     plan: { moves, contents, pathsBefore: files, updateLinks },
@@ -484,7 +596,7 @@ export async function runMoves(plan: MovePlan): Promise<string> {
   if (activeTab && [...done.values()].includes(activeTab)) await openFile(activeTab);
 
   const parts = [`Moved ${done.size} of ${plan.moves.length} file${plan.moves.length !== 1 ? 's' : ''}.`];
-  if (plan.updateLinks) parts.push(`Updated ${updatedLinks} wikilink${updatedLinks !== 1 ? 's' : ''} in ${updatedNotes} note${updatedNotes !== 1 ? 's' : ''}.`);
+  if (plan.updateLinks) parts.push(`Updated ${updatedLinks} link${updatedLinks !== 1 ? 's' : ''} in ${updatedNotes} note${updatedNotes !== 1 ? 's' : ''}.`);
   if (failed.length) parts.push(`Failed:\n${failed.join('\n')}`);
   return parts.join(' ');
 }
@@ -526,7 +638,7 @@ export async function planDeletes(raw: unknown): Promise<{ error: string } | { p
   const { links, notes: linking } = countInboundLinks(new Set(doomed), contents, files);
   const state = useNoteStore.getState();
   const notes = links > 0
-    ? [`${links} wikilink${links !== 1 ? 's' : ''} in ${linking} other note${linking !== 1 ? 's' : ''} will stop working.`]
+    ? [`${links} link${links !== 1 ? 's' : ''} in ${linking} other note${linking !== 1 ? 's' : ''} will stop working.`]
     : ['No other note links to these files.'];
 
   return {
