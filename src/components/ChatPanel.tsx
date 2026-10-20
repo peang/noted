@@ -444,9 +444,11 @@ function ChatView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const visible = visibleMessages(messages);
-  const lastVisible = visible[visible.length - 1];
-  // Dots only until the first token arrives; after that the streamed text is the feedback
-  const showThinking = isLoading && !pendingWrite && !pendingAction && (!!aiStatus || lastVisible?.role === 'user');
+  const lastMessage = messages[messages.length - 1];
+  // Feedback is needed whenever nothing is streaming: before the first token and, after a tool call,
+  // while the next round is awaited (the last message is then the tool result, not streamed text)
+  const showThinking = isLoading && !pendingWrite && !pendingAction &&
+    (!!aiStatus || !lastMessage || lastMessage.role === 'user' || lastMessage.role === 'tool');
 
   const handleMentionSelect = useCallback((path: string) => {
     const textBefore = input.slice(0, cursorPos);
