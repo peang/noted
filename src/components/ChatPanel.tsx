@@ -2,9 +2,13 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from '
 import { useChatStore, Message, stripSystemReminder } from '../store/chatStore';
 import { useNoteStore } from '../store/noteStore';
 import { toast } from 'sonner';
-import { Send, Square, Key, ExternalLink, Trash2, Sparkles, FileText, Folder, FileEdit, FilePlus, Check, X } from 'lucide-react';
+import { ArrowUp, ArrowDown, Square, Key, KeyRound, ExternalLink, Sparkles, FileText, FileEdit, FilePlus, Check, X, Copy, History, SquarePen, AlertCircle, Loader2 } from 'lucide-react';
 import { useFileMention } from '../hooks/useFileMention';
 import FileMentionDropdown from './FileMentionDropdown';
+import ModelPicker from './chat/ModelPicker';
+import ChatHistory from './chat/ChatHistory';
+import { Button, IconButton } from './ui/Button';
+import ConfirmButton from './ui/ConfirmButton';
 import { diffLines } from '../utils/lineDiff';
 
 function escapeHtml(text: string): string {
@@ -50,6 +54,7 @@ function renderInline(text: string): string {
     : text;
 
   result = escapeHtml(result)
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/~~(.+?)~~/g, '<del>$1</del>');
@@ -129,20 +134,52 @@ function renderMarkdown(text: string): React.ReactNode[] {
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === 'user';
   const content = msg.content ? stripSystemReminder(msg.content) : '';
-  return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      {isUser ? (
-        <div className="max-w-[85%] px-3 py-2 rounded-lg rounded-br-sm text-xs leading-relaxed whitespace-pre-wrap bg-theme-active text-theme-white">
+  const [copied, setCopied] = useState(false);
+
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] px-3.5 py-2 rounded-2xl rounded-br-md text-[13px] leading-relaxed whitespace-pre-wrap break-words bg-theme-active text-theme-white">
           {content}
         </div>
-      ) : (
-        <div className="chat-bubble max-w-[85%] px-3 py-2 rounded-lg rounded-bl-sm text-xs leading-relaxed bg-theme-card border border-theme-border text-theme-text">
+      </div>
+    );
+  }
+
+  const copy = () => {
+    navigator.clipboard.writeText(content).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => toast.error('Could not copy to the clipboard')
+    );
+  };
+
+  return (
+    <div className="group flex gap-2.5">
+      <AssistantAvatar />
+      <div className="flex-1 min-w-0">
+        <div className="chat-bubble text-[13px] leading-relaxed text-theme-text break-words">
           {renderMarkdown(content)}
         </div>
-      )}
+        <div className="mt-1 h-5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <IconButton label={copied ? 'Copied' : 'Copy'} className="h-5 w-5" onClick={copy}>
+            {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+          </IconButton>
+        </div>
+      </div>
     </div>
   );
 });
+
+function AssistantAvatar() {
+  return (
+    <div className="w-6 h-6 rounded-full bg-theme-active border border-theme-border flex items-center justify-center shrink-0 mt-0.5">
+      <Sparkles className="w-3 h-3 text-theme-muted" />
+    </div>
+  );
+}
 
 const DIFF_CONTEXT_LINES = 2;
 
@@ -151,15 +188,15 @@ function WritePreview({ oldContent, content }: { oldContent: string | null; cont
     () => (oldContent === null ? null : diffLines(oldContent, content)),
     [oldContent, content]
   );
-  const boxClass = 'text-[10px] font-mono bg-black/30 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-all mb-3';
+  const boxClass = 'text-[10px] leading-relaxed font-mono bg-theme-bg/60 border border-theme-border rounded-lg p-2 max-h-48 overflow-y-auto thin-scrollbar whitespace-pre-wrap break-all';
 
   if (!lines) {
     return (
       <>
         {oldContent !== null && (
-          <p className="text-[10px] text-yellow-400/80 mb-1">Too large to diff — full new content:</p>
+          <p className="text-[10px] text-theme-muted mb-1">Too large to diff — full new content:</p>
         )}
-        <pre className={`${boxClass} text-yellow-200/70`}>{content}</pre>
+        <pre className={`${boxClass} text-theme-muted`}>{content}</pre>
       </>
     );
   }
@@ -168,7 +205,7 @@ function WritePreview({ oldContent, content }: { oldContent: string | null; cont
   const added = lines.filter((l) => l.type === 'add').length;
   const removed = lines.filter((l) => l.type === 'del').length;
   if (!added && !removed) {
-    return <p className="text-[10px] text-yellow-400/80 mb-3">No changes.</p>;
+    return <p className="text-[10px] text-theme-muted">No changes.</p>;
   }
 
   const rows: React.ReactNode[] = [];
@@ -184,9 +221,9 @@ function WritePreview({ oldContent, content }: { oldContent: string | null; cont
       return;
     }
     flushHidden(`gap-${i}`);
-    const style = line.type === 'add' ? 'text-emerald-300 bg-emerald-900/30'
-      : line.type === 'del' ? 'text-red-300 bg-red-900/30 line-through decoration-red-400/40'
-      : 'text-yellow-200/50';
+    const style = line.type === 'add' ? 'text-emerald-500 bg-emerald-500/10'
+      : line.type === 'del' ? 'text-red-500 bg-red-500/10 line-through decoration-red-500/40'
+      : 'text-theme-darker';
     const prefix = line.type === 'add' ? '+ ' : line.type === 'del' ? '- ' : '  ';
     rows.push(<div key={i} className={style}>{prefix}{line.text || ' '}</div>);
   });
@@ -195,10 +232,41 @@ function WritePreview({ oldContent, content }: { oldContent: string | null; cont
   return (
     <>
       <p className="text-[10px] font-mono mb-1">
-        <span className="text-emerald-400">+{added}</span> <span className="text-red-400">−{removed}</span>
+        <span className="text-emerald-500">+{added}</span> <span className="text-red-500">−{removed}</span>
       </p>
       <div className={boxClass}>{rows}</div>
     </>
+  );
+}
+
+function PendingWriteCard() {
+  const pendingWrite = useChatStore((s) => s.pendingWrite);
+  const approveWrite = useChatStore((s) => s.approveWrite);
+  const rejectWrite = useChatStore((s) => s.rejectWrite);
+  if (!pendingWrite) return null;
+  const isNew = pendingWrite.oldContent === null;
+
+  return (
+    <div className="mx-3 mb-2 shrink-0 rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
+      <div className="flex items-center gap-2.5 px-3 py-2 border-b border-amber-500/20">
+        {isNew ? <FilePlus className="w-4 h-4 text-amber-500 shrink-0" /> : <FileEdit className="w-4 h-4 text-amber-500 shrink-0" />}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-theme-white">{isNew ? 'Create this file?' : 'Apply this edit?'}</p>
+          <p className="text-[10px] font-mono text-theme-muted truncate" title={pendingWrite.path}>{pendingWrite.path}</p>
+        </div>
+      </div>
+      <div className="px-3 pt-2.5">
+        <WritePreview oldContent={pendingWrite.oldContent} content={pendingWrite.content} />
+      </div>
+      <div className="flex justify-end gap-2 px-3 py-2.5">
+        <Button variant="secondary" onClick={rejectWrite}>
+          <X className="w-3.5 h-3.5" /> Reject
+        </Button>
+        <Button variant="primary" onClick={approveWrite}>
+          <Check className="w-3.5 h-3.5" /> Approve
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -208,49 +276,87 @@ function visibleMessages(messages: Message[]): Message[] {
 
 function ApiKeySetup() {
   const [inputKey, setInputKey] = useState('');
+  const [saving, setSaving] = useState(false);
   const setApiKey = useChatStore((s) => s.setApiKey);
   const chatError = useChatStore((s) => s.chatError);
 
-  const handleSave = () => {
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
     const key = inputKey.trim();
-    if (key) setApiKey(key);
+    if (!key || saving) return;
+    setSaving(true);
+    await setApiKey(key);
+    setSaving(false);
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-4 gap-4 text-center">
-      <Key className="w-8 h-8 text-theme-darker" />
+    <div className="flex-1 flex flex-col items-center justify-center px-6 gap-5 text-center">
+      <div className="w-12 h-12 rounded-2xl bg-theme-active border border-theme-border flex items-center justify-center">
+        <Key className="w-5 h-5 text-theme-white" />
+      </div>
       <div>
-        <h3 className="text-sm font-semibold text-theme-white mb-1">OpenCode Go API Key</h3>
-        <p className="text-[11px] text-theme-muted leading-relaxed">
-          Enter your OpenCode Go API key to enable AI chat.
+        <h3 className="text-sm font-semibold text-theme-white">Connect OpenCode Go</h3>
+        <p className="text-xs text-theme-muted leading-relaxed mt-1 max-w-[260px]">
+          Paste your API key to chat with your notes. It is only stored in this browser.
         </p>
       </div>
-      <input
-        type="password"
-        value={inputKey}
-        onChange={(e) => setInputKey(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && handleSave()}
-        placeholder="oc-go-..."
-        className="w-full bg-theme-input border border-theme-border rounded px-3 py-2 text-xs text-theme-text placeholder-theme-darker outline-none focus:border-theme-border-hover"
-      />
-      {chatError && (
-        <p className="text-[11px] text-red-400">{chatError}</p>
-      )}
-      <button
-        onClick={handleSave}
-        disabled={!inputKey.trim()}
-        className="w-full bg-theme-active hover:bg-theme-hover text-theme-white border border-theme-border rounded px-3 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-      >
-        Save Key
-      </button>
+      <form onSubmit={handleSave} className="w-full max-w-xs space-y-2">
+        <input
+          type="password"
+          value={inputKey}
+          onChange={(e) => setInputKey(e.target.value)}
+          placeholder="oc-go-..."
+          autoFocus
+          className="w-full h-9 bg-theme-input border border-theme-border rounded-lg px-3 text-xs text-theme-text placeholder-theme-darker outline-none focus:border-theme-border-hover transition-colors"
+        />
+        {chatError && <p role="alert" className="text-[11px] text-red-500 text-left">{chatError}</p>}
+        <Button type="submit" variant="primary" size="md" className="w-full" disabled={!inputKey.trim() || saving}>
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+          {saving ? 'Checking...' : 'Save key'}
+        </Button>
+      </form>
       <a
         href="https://opencode.ai/auth"
         target="_blank"
         rel="noopener noreferrer"
         className="text-[11px] text-theme-muted hover:text-theme-white flex items-center gap-1 transition-colors"
       >
-        Get API key from opencode.ai <ExternalLink className="w-3 h-3" />
+        Get an API key <ExternalLink className="w-3 h-3" />
       </a>
+    </div>
+  );
+}
+
+function EmptyState({ activeTab, onPick }: { activeTab: string | null; onPick: (text: string) => void }) {
+  const suggestions = [
+    activeTab ? `Summarize @${activeTab}` : null,
+    'List every open task and TODO in my notes',
+    'Which notes mention ',
+  ].filter((s): s is string => s !== null);
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-center px-4 gap-4">
+      <div className="w-12 h-12 rounded-2xl bg-theme-active border border-theme-border flex items-center justify-center">
+        <Sparkles className="w-5 h-5 text-theme-white" />
+      </div>
+      <div>
+        <h3 className="text-sm font-semibold text-theme-white">Ask your notes</h3>
+        <p className="text-xs text-theme-muted leading-relaxed mt-1 max-w-[280px]">
+          Chat can read the files in this workspace and propose edits that you approve first.
+        </p>
+      </div>
+      <div className="flex flex-col gap-1.5 w-full max-w-xs">
+        {suggestions.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onPick(s)}
+            className="px-3 py-2 rounded-lg border border-theme-border text-xs text-theme-muted hover:text-theme-white hover:bg-theme-hover hover:border-theme-border-hover text-left truncate cursor-pointer transition-colors"
+          >
+            {s}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -262,7 +368,7 @@ function ChatView() {
   const isLoading = useChatStore((s) => s.isLoading);
   const chatError = useChatStore((s) => s.chatError);
   const aiStatus = useChatStore((s) => s.aiStatus);
-  const folderName = useNoteStore((s) => s.folderName);
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
   const activeTab = useNoteStore((s) => s.activeTab);
   const workspaceCounts = useNoteStore((s) => s.workspaceCounts);
 
@@ -271,10 +377,6 @@ function ChatView() {
   const stopGeneration = useChatStore((s) => s.stopGeneration);
   const setModel = useChatStore((s) => s.setModel);
   const lastUsage = useChatStore((s) => s.lastUsage);
-  const clearChat = useChatStore((s) => s.clearChat);
-  const clearApiKey = useChatStore((s) => s.clearApiKey);
-  const approveWrite = useChatStore((s) => s.approveWrite);
-  const rejectWrite = useChatStore((s) => s.rejectWrite);
 
   const [input, setInput] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
@@ -284,12 +386,13 @@ function ChatView() {
   const [dismissedMentionAt, setDismissedMentionAt] = useState<number | null>(null);
   const mentionOpen = mention.active && mention.start !== dismissedMentionAt;
   const stickToBottomRef = useRef(true);
-
-  const fileCount = workspaceCounts.files;
-  const contextLabel = activeTab
-    ? `Active: ${activeTab} · ${fileCount} file${fileCount !== 1 ? 's' : ''} in workspace`
-    : `${fileCount} file${fileCount !== 1 ? 's' : ''} in workspace`;
+  const [showJump, setShowJump] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const visible = visibleMessages(messages);
+  const lastVisible = visible[visible.length - 1];
+  // Dots only until the first token arrives; after that the streamed text is the feedback
+  const showThinking = isLoading && !pendingWrite && (!!aiStatus || lastVisible?.role === 'user');
 
   const handleMentionSelect = useCallback((path: string) => {
     const textBefore = input.slice(0, cursorPos);
@@ -318,12 +421,26 @@ function ChatView() {
     if (!mention.active) setDismissedMentionAt(null);
   }, [mention.active]);
 
+  const scrollToBottom = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    stickToBottomRef.current = true;
+    el.scrollTop = el.scrollHeight;
+    setShowJump(false);
+  }, []);
+
   // Follow new tokens only while the user is at the bottom, so they can scroll up and read
   useEffect(() => {
     if (listRef.current && stickToBottomRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, showThinking]);
+
+  // Opening another chat starts at its latest message
+  useEffect(() => {
+    scrollToBottom();
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [activeSessionId, scrollToBottom]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -331,10 +448,6 @@ function ChatView() {
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
     }
   }, [input]);
-
-  useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
 
   useEffect(() => {
     if (isLoading) return;
@@ -352,183 +465,116 @@ function ChatView() {
     if (!content || isLoading) return;
     setInput('');
     setCursorPos(0);
-    stickToBottomRef.current = true;
+    scrollToBottom();
     sendMessage(content);
   };
 
+  const pickSuggestion = (text: string) => {
+    setInput(text);
+    setCursorPos(text.length);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.selectionStart = el.selectionEnd = text.length;
+    });
+  };
+
+  const canSend = !!input.trim();
+
   return (
     <>
-      {/* Model selector + actions */}
-      <div className="px-3 py-2 border-b border-theme-border flex items-center gap-2">
-        <select
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          className="flex-1 bg-theme-input border border-theme-border rounded px-2 py-1 text-[10px] text-theme-text outline-none focus:border-theme-border-hover"
-        >
-          {availableModels.length === 0 && (
-            <option value={model}>{model}</option>
-          )}
-          {availableModels.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-        <button
-          onClick={() => {
-            toast('Start a new chat?', {
-              description: 'This will clear the current conversation.',
-              duration: 10000,
-              action: {
-                label: 'Clear',
-                onClick: () => clearChat(),
-              },
-            });
-          }}
-          title="Start a new chat session"
-          className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-sky-500/30 text-sky-400 hover:text-sky-400 hover:bg-theme-hover cursor-pointer transition-all shrink-0"
-        >
-          New Chat
-        </button>
-        <button
-          onClick={() => {
-            toast('Remove API key?', {
-              description: 'You will need to re-enter it to use the chat.',
-              duration: 10000,
-              action: {
-                label: 'Remove',
-                onClick: () => {
-                  clearApiKey();
-                  toast.info('API key removed');
-                },
-              },
-            });
-          }}
-          title="Remove API key"
-          className="text-theme-darker hover:text-red-400 p-1 rounded hover:bg-theme-hover cursor-pointer shrink-0"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* Context bar */}
-      <div className="px-3 py-1.5 border-b border-theme-border bg-theme-sidebar-header flex items-center gap-1.5 text-[10px] text-theme-darker font-mono">
-        <FileText className="w-3 h-3 shrink-0" />
-        <span className="truncate">{contextLabel}</span>
-      </div>
-
       {/* Messages */}
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 thin-scrollbar space-y-3"
-        onScroll={() => {
-          const el = listRef.current;
-          if (el) stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-        onClick={(e) => {
-          const link = (e.target as HTMLElement).closest('.file-ref-link');
-          if (link) {
-            e.preventDefault();
-            const path = link.getAttribute('data-path');
-            if (path) useNoteStore.getState().openFile(path);
-          }
-        }}
-      >
-        {visibleMessages(messages).length === 0 && !isLoading && (
-          <div className="flex flex-col items-center justify-center h-full text-center gap-2 text-theme-darker">
-            <Sparkles className="w-6 h-6" />
-            <p className="text-[11px]">Ask anything about your notes</p>
-          </div>
-        )}
-        {visibleMessages(messages).map((msg, i) => (
-          <MessageBubble key={i} msg={msg} />
-        ))}
-        {isLoading && !pendingWrite && visibleMessages(messages).length > 0 && (
-          <div className="flex justify-start">
-            <div className="bg-theme-card border border-theme-border rounded-lg rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 bg-theme-darker rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 bg-theme-darker rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-1.5 h-1.5 bg-theme-darker rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+      <div className="relative flex-1 min-h-0">
+        <div
+          ref={listRef}
+          className="h-full overflow-y-auto px-4 py-4 thin-scrollbar space-y-5"
+          onScroll={() => {
+            const el = listRef.current;
+            if (!el) return;
+            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            stickToBottomRef.current = atBottom;
+            setShowJump(!atBottom);
+          }}
+          onClick={(e) => {
+            const link = (e.target as HTMLElement).closest('.file-ref-link');
+            if (link) {
+              e.preventDefault();
+              const path = link.getAttribute('data-path');
+              if (path) useNoteStore.getState().openFile(path);
+            }
+          }}
+        >
+          {visible.length === 0 && !isLoading && <EmptyState activeTab={activeTab} onPick={pickSuggestion} />}
+          {visible.map((msg, i) => (
+            <MessageBubble key={i} msg={msg} />
+          ))}
+          {showThinking && (
+            <div className="flex gap-2.5 items-center">
+              <AssistantAvatar />
+              {aiStatus ? (
+                <span className="flex items-center gap-1.5 text-xs text-theme-muted">
+                  <Loader2 className="w-3 h-3 animate-spin" /> {aiStatus}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1" aria-label="Thinking">
+                  {[0, 150, 300].map((delay) => (
+                    <span key={delay} className="w-1.5 h-1.5 bg-theme-darker rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                  ))}
+                </span>
+              )}
             </div>
-          </div>
-        )}
-        {chatError && (
-          <p className="text-[11px] text-red-400 text-center">{chatError}</p>
-        )}
-        {aiStatus && (
-          <div className="flex justify-start">
-            <div className="text-[10px] text-theme-muted italic px-1 py-0.5">{aiStatus}</div>
-          </div>
+          )}
+          {chatError && (
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-px" />
+              <span className="flex-1 break-words">{chatError}</span>
+            </div>
+          )}
+        </div>
+        {showJump && (
+          <IconButton
+            label="Jump to latest"
+            variant="secondary"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 h-8 w-8 rounded-full shadow-lg bg-theme-card"
+            onClick={scrollToBottom}
+          >
+            <ArrowDown className="w-4 h-4" />
+          </IconButton>
         )}
       </div>
 
-      {/* Pending write confirmation */}
-      {pendingWrite && (
-        <div className="mx-3 my-2 p-3 bg-yellow-950/40 border border-yellow-700/50 rounded-lg">
-          <div className="flex items-start gap-2">
-            {pendingWrite.oldContent === null
-              ? <FilePlus className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
-              : <FileEdit className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-yellow-300 mb-1">
-                {pendingWrite.oldContent === null ? 'AI wants to create a file' : 'AI wants to edit a file'}
-              </p>
-              <p className="text-[10px] text-yellow-400/80 font-mono mb-2 truncate">{pendingWrite.path}</p>
-              <WritePreview oldContent={pendingWrite.oldContent} content={pendingWrite.content} />
-              <div className="flex gap-2">
-                <button
-                  onClick={approveWrite}
-                  className="flex items-center gap-1 px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-semibold cursor-pointer transition-colors"
-                >
-                  <Check className="w-3 h-3" /> Approve
-                </button>
-                <button
-                  onClick={rejectWrite}
-                  className="flex items-center gap-1 px-3 py-1 bg-red-800/60 hover:bg-red-700 text-red-300 rounded text-[10px] font-semibold cursor-pointer transition-colors"
-                >
-                  <X className="w-3 h-3" /> Reject
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <PendingWriteCard />
 
-      {/* Token usage + Input */}
-      {/* Input */}
-      <div className="border-t border-theme-border">
-        {/* Token usage bar */}
-        {lastUsage && !isLoading && (
-          <div className="px-3 py-1 bg-theme-sidebar-header/50 flex items-center gap-1.5 text-[9px] text-theme-darker font-mono tabular-nums">
-            {lastUsage.reasoning > 0 && <span>{(lastUsage.reasoning / 1000).toFixed(1)}k reasoning</span>}
-            <span>(context: {(lastUsage.prompt / 1000).toFixed(1)}k in · {(lastUsage.completion / 1000).toFixed(1)}k out)</span>
-          </div>
-        )}
-        <div className="p-3">
-          <div
-            className="relative flex items-end gap-2"
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const path = e.dataTransfer.getData('text/plain');
-              if (path) {
-                const prefix = input.length > 0 && !input.endsWith(' ') ? ' ' : '';
-                setInput(prev => prev + prefix + '@' + path + ' ');
-                textareaRef.current?.focus();
-              }
-            }}
-          >
-            {mentionOpen && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 z-50">
-                <FileMentionDropdown
-                  searchTerm={mention.searchTerm}
-                  onSelect={handleMentionSelect}
-                  onClose={handleMentionClose}
-                  inputRef={textareaRef}
-                />
-              </div>
-            )}
+      {/* Composer */}
+      <div className="px-3 pb-3 pt-1 shrink-0">
+        <div
+          className="relative"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const path = e.dataTransfer.getData('text/plain');
+            if (path) {
+              const prefix = input.length > 0 && !input.endsWith(' ') ? ' ' : '';
+              setInput(prev => prev + prefix + '@' + path + ' ');
+              textareaRef.current?.focus();
+            }
+          }}
+        >
+          {mentionOpen && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 z-50">
+              <FileMentionDropdown
+                searchTerm={mention.searchTerm}
+                onSelect={handleMentionSelect}
+                onClose={handleMentionClose}
+                inputRef={textareaRef}
+              />
+            </div>
+          )}
+          <div className="rounded-2xl border border-theme-border bg-theme-input focus-within:border-theme-border-hover transition-colors shadow-sm">
             <textarea
               ref={textareaRef}
               value={input}
@@ -542,37 +588,71 @@ function ChatView() {
               onKeyDown={(e) => {
                 // The mention dropdown already handled this key
                 if (e.nativeEvent.defaultPrevented) return;
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   handleSend();
+                } else if (e.key === 'Escape' && isLoading) {
+                  stopGeneration();
                 }
               }}
-              placeholder="Ask about your workspace... (@ to reference files)"
-              readOnly={isLoading}
+              // Stays editable while an answer streams (a read-only field hides the caret and
+              // looks like lost focus); sending is blocked in handleSend until it finishes
+              placeholder={isLoading ? 'Answering… type your next message (Esc to stop)' : 'Ask about your notes...'}
               rows={1}
-              className="flex-1 bg-theme-input border border-theme-border rounded px-3 py-2 text-xs text-theme-text placeholder-theme-darker outline-none focus:border-theme-border-hover read-only:opacity-50 resize-none overflow-y-auto min-h-[32px] max-h-[200px] leading-relaxed"
+              className="w-full bg-transparent px-3.5 pt-3 pb-1 text-[13px] text-theme-text placeholder-theme-darker outline-none resize-none overflow-y-auto min-h-[44px] max-h-[200px] leading-relaxed"
             />
-            <button
-              onClick={isLoading ? stopGeneration : handleSend}
-              disabled={!isLoading && !input.trim()}
-              title={isLoading ? 'Stop' : 'Send'}
-              className="p-2 bg-theme-active hover:bg-theme-hover text-theme-white border border-theme-border rounded cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
-            >
-              {isLoading ? (
-                <Square className="w-4 h-4 fill-current" />
-              ) : (
-                <Send className="w-4 h-4" />
+            <div className="flex items-center gap-1 px-2 pb-2">
+              <ModelPicker value={model} models={availableModels} onChange={setModel} disabled={isLoading} />
+              {activeTab && (
+                <span
+                  className="flex items-center gap-1 min-w-0 px-1.5 text-[11px] text-theme-darker"
+                  title={`Open file: ${activeTab} · ${workspaceCounts.files} file${workspaceCounts.files !== 1 ? 's' : ''} in workspace`}
+                >
+                  <FileText className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{activeTab.split('/').pop()}</span>
+                </span>
               )}
-            </button>
+              <div className="flex-1" />
+              {lastUsage && !isLoading && (
+                <span
+                  className="hidden sm:block text-[10px] text-theme-darker font-mono tabular-nums mr-1"
+                  title={lastUsage.reasoning > 0 ? `${(lastUsage.reasoning / 1000).toFixed(1)}k reasoning tokens` : undefined}
+                >
+                  {(lastUsage.prompt / 1000).toFixed(1)}k in · {(lastUsage.completion / 1000).toFixed(1)}k out
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={isLoading ? stopGeneration : handleSend}
+                disabled={!isLoading && !canSend}
+                title={isLoading ? 'Stop' : 'Send'}
+                aria-label={isLoading ? 'Stop generating' : 'Send message'}
+                className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                  isLoading || canSend
+                    ? 'bg-theme-white text-theme-bg hover:opacity-90 cursor-pointer'
+                    : 'bg-theme-active text-theme-darker cursor-not-allowed'
+                }`}
+              >
+                {isLoading ? <Square className="w-3.5 h-3.5 fill-current" /> : <ArrowUp className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
         </div>
+        <p className="mt-1.5 text-center text-[10px] text-theme-darker select-none">
+          Enter to send · Shift+Enter for a new line · @ to mention a file
+        </p>
       </div>
     </>
   );
 }
 
-export default function ChatPanel() {
+export default function ChatPanel({ onClose }: { onClose: () => void }) {
   const apiKey = useChatStore((s) => s.apiKey);
+  const sessions = useChatStore((s) => s.sessions);
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const newChat = useChatStore((s) => s.newChat);
+  const clearApiKey = useChatStore((s) => s.clearApiKey);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     if (apiKey) {
@@ -580,9 +660,54 @@ export default function ChatPanel() {
     }
   }, []);
 
+  const title = sessions.find((s) => s.id === activeSessionId)?.title ?? 'New chat';
+  const closeHistory = useCallback(() => setHistoryOpen(false), []);
+
   return (
     <div data-chat-panel className="flex-1 flex flex-col h-full overflow-hidden">
-      {apiKey ? <ChatView /> : <ApiKeySetup />}
+      <div className="h-12 shrink-0 flex items-center gap-1 px-2 border-b border-theme-border bg-theme-sidebar-header">
+        {apiKey && (
+          <IconButton
+            label={historyOpen ? 'Back to chat' : 'Chat history'}
+            active={historyOpen}
+            onClick={() => setHistoryOpen((o) => !o)}
+          >
+            <History className="w-4 h-4" />
+          </IconButton>
+        )}
+        <div className="flex-1 min-w-0 px-1.5 flex items-center gap-1.5">
+          {!apiKey && <Sparkles className="w-3.5 h-3.5 text-theme-muted shrink-0" />}
+          <span className="text-xs font-semibold text-theme-white truncate" title={apiKey ? title : undefined}>
+            {!apiKey ? 'Chat' : historyOpen ? 'History' : title}
+          </span>
+        </div>
+        {apiKey && (
+          <>
+            <IconButton label="New chat" onClick={() => { newChat(); setHistoryOpen(false); }}>
+              <SquarePen className="w-4 h-4" />
+            </IconButton>
+            <ConfirmButton
+              label="Remove API key"
+              confirmLabel="Remove key?"
+              onConfirm={() => {
+                clearApiKey();
+                setHistoryOpen(false);
+                toast.info('API key removed. Your chats are kept.');
+              }}
+            >
+              <KeyRound className="w-4 h-4" />
+            </ConfirmButton>
+          </>
+        )}
+        <IconButton label="Close chat" onClick={onClose}>
+          <X className="w-4 h-4" />
+        </IconButton>
+      </div>
+
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        {apiKey ? <ChatView /> : <ApiKeySetup />}
+        {apiKey && historyOpen && <ChatHistory onClose={closeHistory} />}
+      </div>
     </div>
   );
 }

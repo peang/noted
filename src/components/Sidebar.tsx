@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNoteStore, FileNode } from '../store/noteStore';
 import { toast } from 'sonner';
 import { defaultStyles } from 'react-file-icon';
+import { Button, IconButton } from './ui/Button';
 import {
   Folder,
   FolderOpen,
@@ -22,7 +23,8 @@ import {
   Sparkles,
   Sun,
   Moon,
-  Minus
+  Minus,
+  PanelLeftClose
 } from 'lucide-react';
 
 const FILE_COLORS: Record<string, string> = {
@@ -85,7 +87,7 @@ function FileTypeBlock({ ext }: { ext: string }) {
   );
 }
 
-export default function Sidebar() {
+export default function Sidebar({ onCollapse }: { onCollapse: () => void }) {
   const isSimulated = useNoteStore((state) => state.isSimulated);
   const folderName = useNoteStore((state) => state.folderName);
   const fileTree = useNoteStore((state) => state.fileTree);
@@ -440,7 +442,9 @@ export default function Sidebar() {
           <img src="/noted-icon.svg" alt="Noted" className="w-6 h-6" />
           <span className="font-sans font-semibold tracking-tight text-sm text-theme-white">Noted</span>
         </div>
-        <div className="text-[10px] font-mono text-theme-darker font-semibold uppercase">v1.0</div>
+        <IconButton label="Hide sidebar (Ctrl+\)" onClick={onCollapse}>
+          <PanelLeftClose className="w-4 h-4" />
+        </IconButton>
       </div>
 
       {/* Directory Launcher Box */}
@@ -465,23 +469,16 @@ export default function Sidebar() {
             )}
           </div>
           {!isSimulated && (
-            <button
-              onClick={resetToSimulated}
-              title="Return to sandbox"
-              className="text-[10px] font-mono text-red-400 hover:text-red-300 flex items-center gap-0.5 cursor-pointer"
-            >
-              <X className="w-2.5 h-2.5" /> Disconnect
-            </button>
+            <Button variant="danger" className="h-6 px-2 text-[11px]" onClick={resetToSimulated} title="Return to sandbox">
+              <X className="w-3 h-3" /> Disconnect
+            </Button>
           )}
         </div>
 
-        <button
-          onClick={handleOpenFolder}
-          disabled={isRestoring}
-          className="w-full bg-theme-active hover:bg-theme-hover hover:text-theme-white text-theme-muted border border-theme-border rounded px-3 py-1.5 flex items-center justify-center gap-2 text-xs font-semibold select-none cursor-pointer duration-100 transition-all text-center disabled:opacity-40 disabled:cursor-not-allowed"
-        >
+        <Button variant="secondary" size="md" className="w-full" onClick={handleOpenFolder} disabled={isRestoring}>
+          <FolderOpen className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate">{isRestoring ? "Restoring..." : isSimulated ? "Open Folder" : "Change Folder"}</span>
-        </button>
+        </Button>
 
         <div className="text-[10px] text-theme-darker font-mono flex items-center gap-1.5 truncate select-none leading-none">
           <span>Active:</span>
@@ -514,34 +511,28 @@ export default function Sidebar() {
           <span className="text-[11px] uppercase tracking-wider text-theme-darker font-bold">Documents</span>
           <div className="flex items-center gap-2 text-theme-muted">
             {/* Refresh file tree */}
-            <button
-              onClick={handleRefresh}
-              title="Refresh file tree"
-              className="hover:text-white cursor-pointer p-0.5"
-            >
+            <IconButton label="Refresh file tree" onClick={handleRefresh}>
               <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+            </IconButton>
             {/* Create file in Workspace root */}
-            <button
+            <IconButton
+              label="New file in root"
               onClick={() => {
                 setAddingChildState({ parentPath: null, type: 'file' });
                 setInlineInputVal('');
               }}
-              title="New File in Root"
-              className="hover:text-white cursor-pointer p-0.5"
             >
               <Plus className="w-3.5 h-3.5" />
-            </button>
-            <button
+            </IconButton>
+            <IconButton
+              label="New folder in root"
               onClick={() => {
                 setAddingChildState({ parentPath: null, type: 'folder' });
                 setInlineInputVal('');
               }}
-              title="New Folder in Root"
-              className="hover:text-white cursor-pointer p-0.5"
             >
               <FolderPlus className="w-3.5 h-3.5" />
-            </button>
+            </IconButton>
           </div>
         </div>
       </div>
@@ -588,8 +579,8 @@ export default function Sidebar() {
 
       {/* Toast messages */}
       {(errorToast || restoreError) && (
-        <div className="mx-3 my-2 p-2.5 bg-red-950/60 border border-red-900 text-red-300 rounded text-[11px] shadow-lg leading-normal flex items-start gap-1.5">
-          <HelpCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+        <div className="mx-3 my-2 p-2.5 bg-red-500/10 border border-red-500/30 text-red-500 rounded-lg text-[11px] leading-normal flex items-start gap-1.5">
+          <HelpCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
           <div className="flex-1">
             <span className="font-semibold block font-sans text-xs">
               {errorToast ? "Directory Pick Error" : "Folder Access"}
@@ -603,39 +594,29 @@ export default function Sidebar() {
       <div className="mt-auto p-3 border-t border-theme-border bg-theme-sidebar-header flex items-center justify-between gap-2.5">
         {/* Font size controls */}
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => setFontSize(fontSize - 1)}
-            disabled={fontSize <= 12}
-            title="Decrease font size"
-            className="p-1.5 rounded-md border border-theme-border bg-theme-active hover:bg-theme-hover text-theme-muted hover:text-theme-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors flex items-center justify-center"
-          >
+          <IconButton label="Decrease font size" variant="secondary" onClick={() => setFontSize(fontSize - 1)} disabled={fontSize <= 12}>
             <Minus className="w-4 h-4" />
-          </button>
+          </IconButton>
           <span className="text-[10px] font-mono text-theme-darker w-5 text-center select-none">
             {fontSize}
           </span>
-          <button
-            onClick={() => setFontSize(fontSize + 1)}
-            disabled={fontSize >= 28}
-            title="Increase font size"
-            className="p-1.5 rounded-md border border-theme-border bg-theme-active hover:bg-theme-hover text-theme-muted hover:text-theme-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors flex items-center justify-center"
-          >
+          <IconButton label="Increase font size" variant="secondary" onClick={() => setFontSize(fontSize + 1)} disabled={fontSize >= 28}>
             <Plus className="w-4 h-4" />
-          </button>
+          </IconButton>
         </div>
 
         {/* Theme select switch */}
-        <button
+        <IconButton
+          label={theme === 'dark' ? "Switch to light mode" : "Switch to dark mode"}
+          variant="secondary"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
-          className="p-1.5 rounded-md border border-theme-border bg-theme-active hover:bg-theme-hover text-theme-muted hover:text-theme-white cursor-pointer transition-colors shrink-0 flex items-center justify-center"
         >
           {theme === 'dark' ? (
             <Sun className="w-4 h-4 text-amber-500" />
           ) : (
             <Moon className="w-4 h-4 text-indigo-500" />
           )}
-        </button>
+        </IconButton>
       </div>
     </div>
   );

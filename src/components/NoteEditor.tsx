@@ -14,6 +14,7 @@ import CodeLanguagePicker from './CodeLanguagePicker';
 import PlaintextEditor from './PlaintextEditor';
 import DocumentViewer from './DocumentViewer';
 import '@blocknote/mantine/style.css';
+import ChatToggleButton from './ui/ChatToggleButton';
 
 const SAVE_INTERVAL = 3000;
 const blocksCache = new Map<string, any[]>();
@@ -26,8 +27,6 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
   const activeContent = useNoteStore((state) => state.activeContent);
   const activeFileObject = useNoteStore((state) => state.activeFileObject);
   const saveActiveFile = useNoteStore((state) => state.saveActiveFile);
-  const rightSidebarOpen = useNoteStore((state) => state.rightSidebarOpen);
-  const setRightSidebarOpen = useNoteStore((state) => state.setRightSidebarOpen);
   const theme = useNoteStore((state) => state.theme);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -241,6 +240,16 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
 
     lastSavedRef.current = activeContent;
 
+    // The reload happens for external changes too (file watcher, AI write): only give the editor
+    // focus back when it had it, otherwise it steals focus from the chat input
+    const editorHadFocus = (() => {
+      try {
+        return !!(editor as any)._tiptapEditor?.view?.hasFocus();
+      } catch {
+        return false;
+      }
+    })();
+
     const cursorPos = (() => {
       try {
         const pm = (editor as any)._tiptapEditor;
@@ -287,7 +296,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
                     new (state.selection.constructor as any)(targetPos + 1 + off, targetPos + 1 + off)
                   );
                   view.dispatch(tr);
-                  view.focus();
+                  if (editorHadFocus) view.focus();
                 }
               }
             } catch {}
@@ -315,7 +324,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
 
     return (
       <div className="flex-1 flex flex-col bg-theme-bg h-full text-theme-text font-sans">
-        <div className="h-12 border-b border-theme-border px-6 flex items-center justify-between text-xs text-theme-muted select-none bg-theme-sidebar-header">
+        <div className="h-12 border-b border-theme-border px-4 flex items-center justify-between text-xs text-theme-muted select-none bg-theme-sidebar-header">
           <div className="flex items-center gap-2">
             <span className="font-mono bg-theme-active text-theme-darker px-2 py-0.5 rounded border border-theme-border text-[10px] tracking-wide uppercase">
               {ext}
@@ -323,6 +332,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
             <span className="text-theme-darker font-mono select-none">/</span>
             <span className="truncate font-medium text-theme-muted max-w-xs">{filePath}</span>
           </div>
+          <ChatToggleButton />
         </div>
         <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8">
           <div className="w-16 h-16 rounded-xl bg-theme-active border border-theme-border flex items-center justify-center text-2xl font-bold text-theme-darker">
@@ -363,7 +373,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
   return (
     <div className="flex-1 flex flex-col bg-theme-bg h-full overflow-hidden text-theme-text font-sans relative">
       {/* Editor Header Bar */}
-      <div className="h-12 border-b border-theme-border px-6 flex items-center justify-between text-xs text-theme-muted select-none bg-theme-sidebar-header">
+      <div className="h-12 border-b border-theme-border px-4 flex items-center justify-between text-xs text-theme-muted select-none bg-theme-sidebar-header">
         <div className="flex items-center gap-2">
           <span className="font-mono bg-theme-active text-theme-muted px-2 py-0.5 rounded border border-theme-border text-[10px] tracking-wide uppercase">
             Markdown Mode
@@ -372,15 +382,7 @@ export default function NoteEditor({ filePath }: NoteEditorProps) {
           <span className="truncate font-medium text-theme-muted max-w-xs">{filePath}</span>
           <SaveStatus />
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-            title={rightSidebarOpen ? "Hide Open Documents list" : "Show Open Documents list"}
-            className="px-2.5 py-0.5 rounded transition-all cursor-pointer text-xs font-mono font-semibold bg-theme-white text-theme-bg hover:opacity-90"
-          >
-            Open Chat
-          </button>
-        </div>
+        <ChatToggleButton />
       </div>
 
       {/* Editor Main Canvas */}

@@ -124,3 +124,23 @@ Stay as floating button in main workspace (top-right). Click toggles right sideb
 5. `fetchModels()` called → model dropdown populated
 6. User can now chat
 7. Messages persist across sessions via localStorage
+
+---
+
+## Chat history
+
+- Conversations are saved as sessions (`ChatSession` in `chatStore.ts`): `id`, `title` (from the first message), `workspace`, `createdAt`, `updatedAt`, `messages`.
+- Stored in localStorage under `noted_chat_sessions`; `noted_chat_active_session` remembers the open one. The old single-conversation key `noted_chat_messages` is migrated once into a session that shows in every workspace.
+- Sessions belong to the open workspace (folder name, or the sandbox). Switching folders opens that workspace's latest session. Same-named folders share history.
+- At most 30 sessions per workspace are kept; if localStorage is full the oldest other sessions are dropped.
+- New Chat archives the current conversation instead of clearing it. Removing the API key keeps the history.
+- UI: history button in the chat header (search, rename, delete with in-place confirm), `ModelPicker` (searchable, grouped by model family), `ui/Button` for every button.
+
+## Tools
+
+`list_files` (last-modified dates, optional `folder` and `modified_within_days`), `read_file`, `write_file` (needs approval, shows a diff). The last round is sent without tools plus a nudge so the model has to answer. Some models write tool calls as `<｜DSML｜invoke …>` text; that is parsed into real tool calls and hidden from the chat.
+
+## Layout
+
+- Ctrl/Cmd+\ collapses the file sidebar to a rail (state is remembered). Both sidebars remember open/closed; the chat width is restored too.
+- Every view header has the same `ChatToggleButton`, including the landing page.

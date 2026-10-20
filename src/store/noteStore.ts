@@ -121,6 +121,7 @@ interface NoteState {
   rightSidebarTab: 'documents' | 'chat';
   rightSidebarWidth: number;
   leftSidebarWidth: number;
+  leftSidebarOpen: boolean;
   fontSize: number;
   theme: 'light' | 'dark';
   workspacePaths: string[];
@@ -133,6 +134,7 @@ interface NoteState {
   setRightSidebarTab: (tab: 'documents' | 'chat') => void;
   setRightSidebarWidth: (width: number) => void;
   setLeftSidebarWidth: (width: number) => void;
+  setLeftSidebarOpen: (open: boolean) => void;
   setFontSize: (size: number) => void;
   setSearchQuery: (query: string) => void;
   toggleFolderCollapse: (path: string) => void;
@@ -338,6 +340,15 @@ const getInitialLeftSidebarWidth = (): number => {
   return Math.max(160, Math.min(400, w));
 };
 
+const getInitialRightSidebarWidth = (): number => {
+  const saved = localStorage.getItem('noted_right_sidebar_width');
+  const w = saved ? parseInt(saved, 10) : 600;
+  return Number.isFinite(w) ? Math.max(280, Math.min(1200, w)) : 600;
+};
+
+// Sidebars stay open on first run; after that the last choice is remembered
+const getInitialSidebarOpen = (key: string): boolean => localStorage.getItem(key) !== 'false';
+
 const getInitialFontSize = (): number => {
   const saved = localStorage.getItem('noted_font_size');
   const s = saved ? parseInt(saved, 10) : 16;
@@ -535,10 +546,11 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   collapsedFolders: getInitialCollapsedFolders(),
   showSandboxModal: false,
   restoreError: null,
-  rightSidebarOpen: true,
+  rightSidebarOpen: getInitialSidebarOpen('noted_right_sidebar_open'),
   rightSidebarTab: 'chat',
-  rightSidebarWidth: 600,
+  rightSidebarWidth: getInitialRightSidebarWidth(),
   leftSidebarWidth: getInitialLeftSidebarWidth(),
+  leftSidebarOpen: getInitialSidebarOpen('noted_left_sidebar_open'),
   fontSize: getInitialFontSize(),
   theme: getInitialTheme(),
   workspacePaths: [],
@@ -550,6 +562,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   setRightSidebarTab: (tab: 'documents' | 'chat') => set({ rightSidebarTab: tab }),
   setRightSidebarWidth: (width: number) => set({ rightSidebarWidth: width }),
   setLeftSidebarWidth: (width: number) => set({ leftSidebarWidth: Math.max(160, Math.min(400, width)) }),
+  setLeftSidebarOpen: (open: boolean) => set({ leftSidebarOpen: open }),
   setFontSize: (size: number) => {
     const clamped = Math.max(12, Math.min(28, size));
     document.documentElement.style.fontSize = clamped + 'px';
@@ -616,11 +629,6 @@ export const useNoteStore = create<NoteState>((set, get) => ({
 
       await saveRootHandle(handle);
       console.log('[picker] step 4 - saved to IndexedDB');
-
-      try {
-        const { useChatStore } = await import('./chatStore');
-        useChatStore.getState().clearChat();
-      } catch (e) { console.log('[picker] chat clear error (non-critical):', e); }
 
       set({
         rootHandle: handle,
@@ -1244,7 +1252,6 @@ export const useNoteStore = create<NoteState>((set, get) => ({
 
   resetToSimulated: () => {
     deleteRootHandle().catch(console.error);
-    import('./chatStore').then(m => m.useChatStore.getState().clearChat()).catch(() => {});
     const simulated = getInitialSimulatedFiles();
     set({
       isSimulated: true,
@@ -1299,11 +1306,6 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         isSimulated: false,
         restoreError: null,
       });
-
-      try {
-        const { useChatStore } = await import('./chatStore');
-        useChatStore.getState().clearChat();
-      } catch {}
 
       const { collapsedFolders, searchQuery } = get();
       const [tree, paths] = await Promise.all([
@@ -1386,6 +1388,8 @@ useNoteStore.subscribe((state) => {
     localStorage.setItem('noted_theme', state.theme);
     localStorage.setItem('noted_right_sidebar_width', String(state.rightSidebarWidth));
     localStorage.setItem('noted_left_sidebar_width', String(state.leftSidebarWidth));
+    localStorage.setItem('noted_left_sidebar_open', String(state.leftSidebarOpen));
+    localStorage.setItem('noted_right_sidebar_open', String(state.rightSidebarOpen));
     localStorage.setItem('noted_font_size', String(state.fontSize));
   });
 });

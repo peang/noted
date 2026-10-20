@@ -8,9 +8,22 @@ export interface Message {
   tool_call_id?: string;
 }
 
+export interface ChatSession {
+  id: string;
+  title: string;
+  // Workspace folder name; ANY_WORKSPACE for sessions migrated from before history existed
+  workspace: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: Message[];
+}
+
 interface ChatState {
   apiKey: string | null;
+  // The conversation on screen; it is mirrored into the active session on every save
   messages: Message[];
+  sessions: ChatSession[];
+  activeSessionId: string | null;
   model: string;
   availableModels: { id: string; name: string }[];
   isLoading: boolean;
@@ -26,7 +39,14 @@ interface ChatState {
   stopGeneration: () => void;
   fetchModels: () => Promise<void>;
   setModel: (model: string) => void;
-  clearChat: () => void;
+  // Starts an empty conversation; the current one stays in history
+  newChat: () => void;
+  openSession: (id: string) => void;
+  deleteSession: (id: string) => void;
+  renameSession: (id: string, title: string) => void;
+  deleteWorkspaceSessions: () => void;
+  // Shows the latest session of the open workspace when the workspace changed
+  syncWorkspace: () => void;
   approveWrite: () => void;
   rejectWrite: () => void;
 }
@@ -211,7 +231,8 @@ async function buildWorkspaceContext(userMessage?: string): Promise<string> {
     }
   }
 
-  parts.push('You have tools `read_file` and `write_file`. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to create a new file or update an existing one. write_file replaces the whole file, so read_file first and always send the complete content.');
+  parts.push(`Today's date is ${new Date().toLocaleDateString('sv-SE')}.`);
+  parts.push('You have tools `list_files`, `read_file` and `write_file`. To find files by date or folder (for example "files changed this week"), use list_files — do NOT read files one by one to guess. When you need to read a file, ALWAYS use the read_file tool — do NOT output the file path as text. Use write_file to create a new file or update an existing one. write_file replaces the whole file, so read_file first and always send the complete content.');
   parts.push('Be brief and direct. No pleasantries, no disclaimers, no explanations. Just answer the question and stop. Answer based only on the notes provided.');
 
   return parts.join('\n');
@@ -322,6 +343,102 @@ async function executeReadFile(path: string): Promise<string> {
   }
 }
 
+const MS_PER_DAY = 86_400_000;
+
+// Sent only with the last, tool-less round; never stored in the conversation
+const FINAL_ROUND_NUDGE: Message = {
+  role: 'user',
+  content: 'You have no tool calls left. Do not call tools or write tool-call markup. Answer now in plain text using only what you have already read; if that is not enough, say what is missing.',
+};
+
+// Last-modified time for every visible file; the API has no creation time.
+// Walks workspacePaths (the full scan) because fileTree only holds the folders that are expanded.
+async function executeListFiles(folder: string | undefined, withinDays: number | undefined): Promise<string> {
+  const state = useNoteStore.getState();
+  const prefix = (folder ?? '').replace(/^\.\//, '').replace(/\/+$/, '');
+  if (prefix) {
+    const pathError = validateToolPath(prefix);
+    if (pathError) return pathError;
+  }
+  const inScope = (p: string) =>
+    !p.split('/').some((s) => s.startsWith('.')) && (!prefix || p === prefix || p.startsWith(prefix + '/'));
+  const today = new Date().toLocaleDateString('sv-SE');
+
+  const paths = state.isSimulated
+    ? state.simulatedFiles.filter((f) => f.kind === 'file' && inScope(f.path)).map((f) => f.path)
+    : state.workspacePaths.filter((p) => !p.endsWith('/') && inScope(p));
+  if (paths.length === 0) return `No files found${prefix ? ` in "${prefix}"` : ''}.`;
+
+  if (state.isSimulated || !state.rootHandle) {
+    const shown = paths.sort().slice(0, MAX_LISTED_FILES);
+    const more = paths.length - shown.length;
+    return [
+      'Modification dates are not available in the sandbox.',
+      ...shown,
+      ...(more > 0 ? [`(${more} more not shown)`] : []),
+    ].join('\n');
+  }
+
+  const root = state.rootHandle;
+  const dirs = new Map<string, Promise<FileSystemDirectoryHandle>>();
+  const dirHandle = (dir: string): Promise<FileSystemDirectoryHandle> => {
+    let handle = dirs.get(dir);
+    if (!handle) {
+      const slash = dir.lastIndexOf('/');
+      const parent = slash === -1 ? Promise.resolve(root) : dirHandle(dir.slice(0, slash));
+      handle = parent.then((p) => p.getDirectoryHandle(dir.slice(slash + 1)));
+      dirs.set(dir, handle);
+    }
+    return handle;
+  };
+
+  const entries: { path: string; modified: number }[] = [];
+  for (let i = 0; i < paths.length; i += 32) {
+    await Promise.all(paths.slice(i, i + 32).map(async (path) => {
+      try {
+        const slash = path.lastIndexOf('/');
+        const dir = slash === -1 ? root : await dirHandle(path.slice(0, slash));
+        const file = await (await dir.getFileHandle(path.slice(slash + 1))).getFile();
+        entries.push({ path, modified: file.lastModified });
+      } catch {
+        // Deleted or unreadable since the scan: leave it out
+      }
+    }));
+  }
+
+  const cutoff = withinDays !== undefined ? Date.now() - withinDays * MS_PER_DAY : -Infinity;
+  const matches = entries.filter((e) => e.modified >= cutoff).sort((a, b) => b.modified - a.modified);
+  const shown = matches.slice(0, MAX_LISTED_FILES);
+  const more = matches.length - shown.length;
+  return [
+    `Today is ${today}. Dates are last-modified times (creation times are not available), newest first.`,
+    matches.length === 0 ? 'No files match.' : '',
+    ...shown.map((e) => `${new Date(e.modified).toLocaleDateString('sv-SE')}  ${e.path}`),
+    ...(more > 0 ? [`(${more} more not shown — narrow it with "folder" or a smaller "modified_within_days")`] : []),
+  ].filter(Boolean).join('\n');
+}
+
+const LIST_FILES_TOOL = {
+  type: 'function',
+  function: {
+    name: 'list_files',
+    description: 'List workspace files with their last-modified date, newest first. Use this to find files by date or folder instead of reading files one by one.',
+    parameters: {
+      type: 'object',
+      properties: {
+        folder: {
+          type: 'string',
+          description: 'Only list files inside this folder, relative to the workspace root (optional)',
+        },
+        modified_within_days: {
+          type: 'number',
+          description: 'Only list files modified in the last N days, e.g. 7 for this week (optional)',
+        },
+      },
+    },
+  },
+};
+
 const READ_FILE_TOOL = {
   type: 'function',
   function: {
@@ -362,11 +479,18 @@ const WRITE_FILE_TOOL = {
   },
 };
 
-const MAX_TOOL_ROUNDS = 5;
+const MAX_TOOL_ROUNDS = 8;
+const MAX_LISTED_FILES = 150;
 const MAX_ACTIVE_CONTENT_CHARS = 50_000;
 const MAX_PERSISTED_TOOL_CHARS = 2000;
 const STORAGE_KEY_API_KEY = 'noted_go_api_key';
+// Only read to migrate the single conversation older versions kept
 const STORAGE_KEY_MESSAGES = 'noted_chat_messages';
+const STORAGE_KEY_SESSIONS = 'noted_chat_sessions';
+const STORAGE_KEY_ACTIVE_SESSION = 'noted_chat_active_session';
+const SANDBOX_WORKSPACE = '__sandbox__';
+const ANY_WORKSPACE = '*';
+const MAX_SESSIONS_PER_WORKSPACE = 30;
 const STORAGE_KEY_MODEL = 'noted_chat_model';
 const STORAGE_KEY_SESSION = 'noted_chat_session';
 
@@ -388,21 +512,137 @@ function cancelRun() {
   useChatStore.setState({ isLoading: false, pendingWrite: null, aiStatus: null });
 }
 
-// read_file results can be whole files; trim them in storage so localStorage doesn't fill up
+export function workspaceKeyOf(s: { isSimulated: boolean; folderName: string }): string {
+  return s.isSimulated ? SANDBOX_WORKSPACE : s.folderName;
+}
+
+export function sessionBelongsTo(session: ChatSession, workspace: string): boolean {
+  return session.workspace === workspace || session.workspace === ANY_WORKSPACE;
+}
+
+function cleanMessages(messages: Message[]): Message[] {
+  return messages.map((m) => ({ ...m, content: m.content ? stripSystemReminder(m.content) : m.content }));
+}
+
+function titleFrom(messages: Message[]): string {
+  const first = messages.find((m) => m.role === 'user' && m.content);
+  const text = (first?.content ? stripSystemReminder(first.content) : '')
+    .replace(/@(?=\S)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return 'New chat';
+  return text.length > 48 ? text.slice(0, 48).trimEnd() + '…' : text;
+}
+
+// Keeps the newest sessions of each workspace; the open one is never dropped
+function pruneSessions(sessions: ChatSession[], activeId: string | null): ChatSession[] {
+  const counts = new Map<string, number>();
+  return [...sessions]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .filter((s) => {
+      const n = (counts.get(s.workspace) ?? 0) + 1;
+      counts.set(s.workspace, n);
+      return n <= MAX_SESSIONS_PER_WORKSPACE || s.id === activeId;
+    });
+}
+
+// Returns what was actually stored: when localStorage is full the oldest other sessions are dropped
+function writeSessions(sessions: ChatSession[], activeId: string | null): ChatSession[] {
+  let list = sessions;
+  for (;;) {
+    try {
+      localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(list));
+      return list;
+    } catch (e) {
+      const oldest = list
+        .filter((s) => s.id !== activeId)
+        .sort((a, b) => a.updatedAt - b.updatedAt)[0];
+      if (!oldest) {
+        console.warn('Failed to save chat history to localStorage', e);
+        return list;
+      }
+      list = list.filter((s) => s !== oldest);
+    }
+  }
+}
+
+function loadChatHistory(): { sessions: ChatSession[]; activeSessionId: string | null; messages: Message[] } {
+  const workspace = workspaceKeyOf(useNoteStore.getState());
+  const stored = loadFromStorage<ChatSession[]>(STORAGE_KEY_SESSIONS, []);
+  let sessions = Array.isArray(stored) ? stored : [];
+
+  // Migrate the single conversation older versions kept; its workspace is unknown, so it shows everywhere
+  const legacy = loadFromStorage<Message[]>(STORAGE_KEY_MESSAGES, []);
+  if (Array.isArray(legacy) && legacy.length > 0) {
+    if (legacy.some((m) => m.role === 'user')) {
+      const now = Date.now();
+      sessions = [
+        { id: crypto.randomUUID(), title: titleFrom(legacy), workspace: ANY_WORKSPACE, createdAt: now, updatedAt: now, messages: legacy },
+        ...sessions,
+      ];
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(sessions));
+      localStorage.removeItem(STORAGE_KEY_MESSAGES);
+    } catch {
+      // Keep the legacy copy so the next load can retry
+    }
+  }
+
+  // Only reopen the stored session when it belongs to the workspace that is open right now;
+  // otherwise syncWorkspace() picks one once the folder has been restored
+  const activeId = loadFromStorage<string | null>(STORAGE_KEY_ACTIVE_SESSION, null);
+  const active = sessions.find((s) => s.id === activeId && sessionBelongsTo(s, workspace));
+  return {
+    sessions,
+    activeSessionId: active?.id ?? null,
+    messages: active ? cleanMessages(active.messages) : [],
+  };
+}
+
+// Mirrors the on-screen conversation into its session (creating it on the first message).
+// read_file results can be whole files; trim them in storage so localStorage doesn't fill up.
 function persistMessages(messages: Message[]) {
-  saveToStorage(STORAGE_KEY_MESSAGES, messages.map((m) =>
+  if (!messages.some((m) => m.role === 'user')) return;
+  const trimmed = messages.map((m) =>
     m.role === 'tool' && m.content && m.content.length > MAX_PERSISTED_TOOL_CHARS
       ? { ...m, content: m.content.slice(0, MAX_PERSISTED_TOOL_CHARS) + '\n…(truncated)' }
       : m
-  ));
+  );
+
+  const state = useChatStore.getState();
+  const now = Date.now();
+  let activeId = state.activeSessionId;
+  let sessions: ChatSession[];
+  if (activeId && state.sessions.some((s) => s.id === activeId)) {
+    sessions = state.sessions.map((s) => (s.id === activeId ? { ...s, messages: trimmed, updatedAt: now } : s));
+  } else {
+    activeId = crypto.randomUUID();
+    const workspace = workspaceKeyOf(useNoteStore.getState());
+    sessions = [
+      { id: activeId, title: titleFrom(trimmed), workspace, createdAt: now, updatedAt: now, messages: trimmed },
+      ...state.sessions,
+    ];
+  }
+  sessions = writeSessions(pruneSessions(sessions, activeId), activeId);
+  useChatStore.setState({ sessions, activeSessionId: activeId });
+  saveToStorage(STORAGE_KEY_ACTIVE_SESSION, activeId);
 }
+
+// Aborts a running answer but keeps what was streamed so far
+function interruptRun() {
+  if (!useChatStore.getState().isLoading) return;
+  cancelRun();
+  persistMessages(useChatStore.getState().messages);
+}
+
+const initialHistory = loadChatHistory();
 
 export const useChatStore = create<ChatState>((set, get) => ({
   apiKey: loadFromStorage<string | null>(STORAGE_KEY_API_KEY, null),
-  messages: loadFromStorage<Message[]>(STORAGE_KEY_MESSAGES, []).map((m) => ({
-    ...m,
-    content: m.content ? stripSystemReminder(m.content) : m.content,
-  })),
+  messages: initialHistory.messages,
+  sessions: initialHistory.sessions,
+  activeSessionId: initialHistory.activeSessionId,
   model: loadFromStorage<string>(STORAGE_KEY_MODEL, 'deepseek-v4-flash'),
   availableModels: [],
   isLoading: false,
@@ -477,7 +717,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (isStale()) return;
       let contextStale = false;
 
-      // The last round is sent without tools so the model has to give a final answer
+      // The last round is sent without tools (and with a nudge, since some models still try to call one)
+      // so the model has to give a final answer
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         const allowTools = round < MAX_TOOL_ROUNDS;
         // A write may have changed the tree or the open file
@@ -486,7 +727,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (isStale()) return;
           contextStale = false;
         }
-        const apiMessages = [systemMsg, ...currentMessages];
+        const apiMessages = [systemMsg, ...currentMessages, ...(allowTools ? [] : [FINAL_ROUND_NUDGE])];
 
         const res = await fetch('/api/opencode/chat/completions', {
           method: 'POST',
@@ -503,7 +744,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               tool_calls: m.tool_calls,
               tool_call_id: m.tool_call_id,
             })),
-            ...(allowTools ? { tools: [READ_FILE_TOOL, WRITE_FILE_TOOL] } : {}),
+            ...(allowTools ? { tools: [LIST_FILES_TOOL, READ_FILE_TOOL, WRITE_FILE_TOOL] } : {}),
             stream: true,
           }),
           signal: controller.signal,
@@ -618,6 +859,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           for (const tc of Array.from(toolCalls.values())) {
             try {
               const args = JSON.parse(tc.function.arguments);
+              if (tc.function.name === 'list_files') {
+                set({ aiStatus: '🗂 Listing files...' });
+                const listing = await executeListFiles(
+                  typeof args?.folder === 'string' && args.folder ? args.folder : undefined,
+                  typeof args?.modified_within_days === 'number' && args.modified_within_days > 0 ? args.modified_within_days : undefined,
+                );
+                if (isStale()) return;
+                set({ aiStatus: null });
+                currentMessages = [...currentMessages, { role: 'tool', tool_call_id: tc.id, content: listing }];
+                continue;
+              }
               if (typeof args?.path !== 'string' || !args.path) throw new Error('"path" must be a non-empty string');
               if (tc.function.name === 'write_file' && typeof args.content !== 'string') throw new Error('"content" must be a string');
               const path = args.path.replace(/^\.\//, '');
@@ -670,7 +922,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set({
             messages: currentMessages,
             isLoading: false,
-            ...(finalText ? {} : { chatError: 'The model returned no answer. Try again or rephrase.' }),
+            ...(finalText ? {} : { chatError: 'The model ran out of steps without giving an answer. Try a more specific question.' }),
           });
           persistMessages(currentMessages);
           return;
@@ -701,17 +953,86 @@ export const useChatStore = create<ChatState>((set, get) => ({
     saveToStorage(STORAGE_KEY_MODEL, model);
   },
 
-  clearChat: () => {
-    cancelRun();
-    set({ messages: [], chatError: null, lastUsage: null });
-    saveToStorage(STORAGE_KEY_MESSAGES, []);
+  newChat: () => {
+    interruptRun();
+    if (!get().activeSessionId && get().messages.length === 0) {
+      set({ chatError: null });
+      return;
+    }
+    set({ activeSessionId: null, messages: [], chatError: null, lastUsage: null });
+    saveToStorage(STORAGE_KEY_ACTIVE_SESSION, null);
   },
 
+  openSession: (id: string) => {
+    if (get().activeSessionId === id) return;
+    interruptRun();
+    const target = get().sessions.find((s) => s.id === id);
+    if (!target) return;
+    set({ activeSessionId: id, messages: cleanMessages(target.messages), chatError: null, lastUsage: null });
+    saveToStorage(STORAGE_KEY_ACTIVE_SESSION, id);
+  },
+
+  deleteSession: (id: string) => {
+    const wasActive = get().activeSessionId === id;
+    // No save: a cancelled run must not bring the deleted session back
+    if (wasActive) cancelRun();
+    const remaining = get().sessions.filter((s) => s.id !== id);
+    const nextActive = wasActive ? null : get().activeSessionId;
+    set({
+      sessions: remaining,
+      ...(wasActive ? { activeSessionId: null, messages: [], chatError: null, lastUsage: null } : {}),
+    });
+    writeSessions(remaining, nextActive);
+    if (wasActive) saveToStorage(STORAGE_KEY_ACTIVE_SESSION, null);
+  },
+
+  renameSession: (id: string, title: string) => {
+    const clean = title.replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!clean) return;
+    const sessions = get().sessions.map((s) => (s.id === id ? { ...s, title: clean } : s));
+    set({ sessions });
+    writeSessions(sessions, get().activeSessionId);
+  },
+
+  deleteWorkspaceSessions: () => {
+    const workspace = workspaceKeyOf(useNoteStore.getState());
+    const activeId = get().activeSessionId;
+    const activeGoes = get().sessions.some((s) => s.id === activeId && sessionBelongsTo(s, workspace));
+    if (activeGoes) cancelRun();
+    const remaining = get().sessions.filter((s) => !sessionBelongsTo(s, workspace));
+    set({
+      sessions: remaining,
+      ...(activeGoes ? { activeSessionId: null, messages: [], chatError: null, lastUsage: null } : {}),
+    });
+    writeSessions(remaining, activeGoes ? null : activeId);
+    if (activeGoes) saveToStorage(STORAGE_KEY_ACTIVE_SESSION, null);
+  },
+
+  syncWorkspace: () => {
+    const workspace = workspaceKeyOf(useNoteStore.getState());
+    const { sessions, activeSessionId } = get();
+    const active = sessions.find((s) => s.id === activeSessionId);
+    if (active && sessionBelongsTo(active, workspace)) return;
+
+    interruptRun();
+    const latest = get().sessions
+      .filter((s) => sessionBelongsTo(s, workspace))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    set({
+      activeSessionId: latest?.id ?? null,
+      messages: latest ? cleanMessages(latest.messages) : [],
+      chatError: null,
+      lastUsage: null,
+    });
+    saveToStorage(STORAGE_KEY_ACTIVE_SESSION, latest?.id ?? null);
+  },
+
+  // Removing the key signs out but keeps the saved conversations
   clearApiKey: () => {
-    cancelRun();
-    set({ apiKey: null, messages: [], availableModels: [], chatError: null, lastUsage: null });
+    interruptRun();
+    set({ apiKey: null, messages: [], activeSessionId: null, availableModels: [], chatError: null, lastUsage: null });
     saveToStorage(STORAGE_KEY_API_KEY, null);
-    saveToStorage(STORAGE_KEY_MESSAGES, []);
+    saveToStorage(STORAGE_KEY_ACTIVE_SESSION, null);
   },
 
   approveWrite: () => {
@@ -736,3 +1057,14 @@ async function waitForRestore() {
     waited++;
   }
 }
+
+// Switching folders (or leaving the sandbox) swaps in that workspace's conversations,
+// independent of whether the chat panel is open
+let lastWorkspace = workspaceKeyOf(useNoteStore.getState());
+useNoteStore.subscribe((state) => {
+  if (state.isRestoring) return;
+  const workspace = workspaceKeyOf(state);
+  if (workspace === lastWorkspace) return;
+  lastWorkspace = workspace;
+  useChatStore.getState().syncWorkspace();
+});

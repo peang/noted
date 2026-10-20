@@ -3,6 +3,7 @@ import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { useNoteStore } from '../store/noteStore';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download } from 'lucide-react';
+import ChatToggleButton from './ui/ChatToggleButton';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -95,7 +96,7 @@ export default function DocumentViewer({ filePath }: DocumentViewerProps) {
       {/* Header */}
       <div className="h-12 border-b border-theme-border px-4 flex items-center justify-between text-xs bg-theme-sidebar-header shrink-0">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] tracking-wider font-semibold uppercase px-2 py-0.5 rounded border bg-rose-950/40 text-rose-400 border-rose-900/60">
+          <span className="font-mono text-[10px] tracking-wider font-semibold uppercase px-2 py-0.5 rounded border bg-rose-500/10 text-rose-500 border-rose-500/30">
             PDF
           </span>
           <span className="text-theme-darker">/</span>
@@ -117,6 +118,7 @@ export default function DocumentViewer({ filePath }: DocumentViewerProps) {
               <Download className="w-3.5 h-3.5" />
             </button>
           )}
+          <ChatToggleButton />
         </div>
       </div>
 

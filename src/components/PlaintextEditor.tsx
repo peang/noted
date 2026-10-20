@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNoteStore } from '../store/noteStore';
 import { Save, Search, Check, AlertCircle, Loader2, FileCode, Copy, Trash } from 'lucide-react';
+import ChatToggleButton from './ui/ChatToggleButton';
 
 interface PlaintextEditorProps {
   filePath: string;
@@ -161,6 +162,7 @@ export default function PlaintextEditor({ filePath }: PlaintextEditorProps) {
               <span className="text-[10px]">Saved</span>
             </div>
           )}
+          <ChatToggleButton />
         </div>
       </div>
 

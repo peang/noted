@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import NoteEditor from './components/NoteEditor';
 import { useNoteStore, FileNode } from './store/noteStore';
@@ -18,10 +18,13 @@ import {
   Check,
   Columns,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  PanelLeftOpen
 } from 'lucide-react';
 import { Toaster } from 'sonner';
 import ChatPanel from './components/ChatPanel';
+import ChatToggleButton from './components/ui/ChatToggleButton';
+import { IconButton } from './components/ui/Button';
 
 export default function App() {
   useFileWatcher();
@@ -45,6 +48,8 @@ export default function App() {
   const setRightSidebarWidth = useNoteStore((state) => state.setRightSidebarWidth);
   const leftSidebarWidth = useNoteStore((state) => state.leftSidebarWidth);
   const setLeftSidebarWidth = useNoteStore((state) => state.setLeftSidebarWidth);
+  const leftSidebarOpen = useNoteStore((state) => state.leftSidebarOpen);
+  const setLeftSidebarOpen = useNoteStore((state) => state.setLeftSidebarOpen);
   const fontSize = useNoteStore((state) => state.fontSize);
   const theme = useNoteStore((state) => state.theme);
   const workspacePaths = useNoteStore((state) => state.workspacePaths);
@@ -103,6 +108,19 @@ export default function App() {
     }
   };
 
+  // Ctrl/Cmd+\ toggles the file sidebar (Ctrl/Cmd+B stays bold in the editor)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '\\') {
+        e.preventDefault();
+        const { leftSidebarOpen: open, setLeftSidebarOpen: setOpen } = useNoteStore.getState();
+        setOpen(!open);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const rightSidebarRef = useRef<HTMLDivElement>(null);
   const leftSidebarRef = useRef<HTMLDivElement>(null);
 
@@ -138,7 +156,7 @@ export default function App() {
     if (!el) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.max(180, startWidth + startX - e.clientX);
+      const newWidth = Math.max(320, Math.min(window.innerWidth - 48, startWidth + startX - e.clientX));
       el.style.width = newWidth + 'px';
     };
 
@@ -158,16 +176,35 @@ export default function App() {
     <div data-theme={theme} className="flex h-screen w-screen bg-theme-sidebar-bg text-theme-text overflow-hidden font-sans">
       <Toaster position="top-center" richColors closeButton />
       {/* Left Sidebar Navigation */}
-      <div ref={leftSidebarRef} className="relative shrink-0" style={{ width: leftSidebarWidth }}>
-        <Sidebar />
-        {/* Resize handle on right edge */}
-        <div
-          className="absolute -right-1 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"
-          onMouseDown={handleLeftResizeStart}
-        >
-          <div className="w-0.5 h-8 rounded-full bg-theme-border group-hover:bg-theme-border-hover group-active:bg-theme-border-hover transition-colors" />
+      {leftSidebarOpen ? (
+        <div ref={leftSidebarRef} className="relative shrink-0" style={{ width: leftSidebarWidth }}>
+          <Sidebar onCollapse={() => setLeftSidebarOpen(false)} />
+          {/* Resize handle on right edge */}
+          <div
+            className="absolute -right-1 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"
+            onMouseDown={handleLeftResizeStart}
+          >
+            <div className="w-0.5 h-8 rounded-full bg-theme-border group-hover:bg-theme-border-hover group-active:bg-theme-border-hover transition-colors" />
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Collapsed rail: keeps the sidebar one click away */
+        <div className="shrink-0 w-12 h-full bg-theme-sidebar-bg border-r border-theme-border flex flex-col items-center">
+          <div className="h-12 w-full border-b border-theme-border bg-theme-sidebar-header flex items-center justify-center">
+            <IconButton label="Show sidebar (Ctrl+\)" onClick={() => setLeftSidebarOpen(true)}>
+              <PanelLeftOpen className="w-4 h-4" />
+            </IconButton>
+          </div>
+          <div className="flex flex-col items-center gap-1 pt-2">
+            <IconButton label="Open folder" onClick={openFolderPicker}>
+              <FolderOpen className="w-4 h-4" />
+            </IconButton>
+            <IconButton label="New note" onClick={() => setNewFileNameModal(true)}>
+              <Plus className="w-4 h-4" />
+            </IconButton>
+          </div>
+        </div>
+      )}
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-theme-bg relative">
@@ -176,6 +213,10 @@ export default function App() {
           <NoteEditor filePath={activeTab} />
         ) : (
           /* Landing Page Launchpad empty state */
+          <>
+          <div className="h-12 shrink-0 border-b border-theme-border px-4 flex items-center justify-end bg-theme-sidebar-header">
+            <ChatToggleButton />
+          </div>
           <div className="flex-1 overflow-y-auto beauty-scrollbar bg-theme-bg px-8 py-16">
             <div className="max-w-4xl mx-auto space-y-12">
               
@@ -351,12 +392,13 @@ export default function App() {
 
             </div>
           </div>
+          </>
         )}
       </div>
 
       {/* Collapsible Right Sidebar — overlay mode (timpa editor) */}
       {rightSidebarOpen && (
-        <div ref={rightSidebarRef} className="fixed right-0 top-0 z-30 h-screen bg-theme-sidebar-bg border-l border-theme-border flex flex-col animate-fade-in shadow-2xl" style={{ width: rightSidebarWidth }}>
+        <div ref={rightSidebarRef} className="fixed right-0 top-0 z-30 h-screen bg-theme-sidebar-bg border-l border-theme-border flex flex-col animate-fade-in shadow-2xl" style={{ width: rightSidebarWidth, maxWidth: '100vw' }}>
           {/* Resize Handle */}
           <div
             className="absolute -left-1 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"
@@ -364,22 +406,7 @@ export default function App() {
           >
             <div className="w-0.5 h-8 rounded-full bg-theme-border group-hover:bg-theme-border-hover group-active:bg-theme-border-hover transition-colors" />
           </div>
-          {/* Tab Bar — Chat only */}
-          <div className="h-12 border-b border-theme-border flex items-stretch bg-theme-sidebar-header">
-            <div className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-theme-white">
-              <Sparkles className="w-3.5 h-3.5" />
-              Chat
-            </div>
-            <button
-              onClick={() => setRightSidebarOpen(false)}
-              title="Close Chat"
-              className="px-3 text-[11px] font-semibold text-red-400 hover:text-red-400 hover:bg-theme-hover cursor-pointer flex items-center shrink-0 transition-colors"
-            >
-              Close Chat
-            </button>
-          </div>
-
-          <ChatPanel />
+          <ChatPanel onClose={() => setRightSidebarOpen(false)} />
         </div>
       )}
 
