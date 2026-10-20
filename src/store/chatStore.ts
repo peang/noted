@@ -58,12 +58,33 @@ function getSessionId(): string {
   return id;
 }
 
+// Some models (e.g. DeepSeek) write tool calls as raw `<｜DSML｜invoke ...>` markup in the
+// text instead of structured tool_calls. The bars may be full-width or ASCII, with stray spaces.
+const TOOL_MARKUP_START = /<[|｜\s]*DSML/;
+const TOOL_MARKUP_INVOKE = /<[|｜\s]*DSML[|｜\s]*invoke\s+name="([^"]+)"\s*>([\s\S]*?)<\/[|｜\s]*DSML[|｜\s]*invoke\s*>/g;
+const TOOL_MARKUP_PARAM = /<[|｜\s]*DSML[|｜\s]*parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/[|｜\s]*DSML[|｜\s]*parameter\s*>/g;
+
+function stripToolMarkup(text: string): string {
+  const m = TOOL_MARKUP_START.exec(text);
+  return m ? text.slice(0, m.index).trim() : text;
+}
+
+function parseToolMarkup(text: string): { name: string; args: Record<string, string> }[] {
+  const calls: { name: string; args: Record<string, string> }[] = [];
+  for (const inv of text.matchAll(TOOL_MARKUP_INVOKE)) {
+    const args: Record<string, string> = {};
+    for (const p of inv[2].matchAll(TOOL_MARKUP_PARAM)) args[p[1]] = p[2];
+    calls.push({ name: inv[1], args });
+  }
+  return calls;
+}
+
 export function stripSystemReminder(text: string): string {
   if (text.includes('<system-reminder>') && !text.includes('</system-reminder>')) {
     const idx = text.indexOf('<system-reminder>');
-    return text.slice(0, idx).trim();
+    return stripToolMarkup(text.slice(0, idx).trim());
   }
-  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+  return stripToolMarkup(text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim());
 }
 
 function getAllFilePaths(): string[] {
@@ -532,13 +553,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
               if (delta?.content) {
                 assistantContent += delta.content;
                 const cleaned = stripSystemReminder(assistantContent);
-                const msgs = get().messages;
-                const lastMsg = msgs[msgs.length - 1];
-                if (lastMsg?.role === 'assistant' && lastMsg.content !== null) {
-                  msgs[msgs.length - 1] = { ...lastMsg, content: cleaned };
-                  set({ messages: [...msgs] });
-                } else {
-                  set({ messages: [...get().messages, { role: 'assistant', content: cleaned }] });
+                // Skip empty text so a markup-only reply doesn't show an empty bubble
+                if (cleaned) {
+                  const msgs = get().messages;
+                  const lastMsg = msgs[msgs.length - 1];
+                  if (lastMsg?.role === 'assistant' && lastMsg.content !== null) {
+                    msgs[msgs.length - 1] = { ...lastMsg, content: cleaned };
+                    set({ messages: [...msgs] });
+                  } else {
+                    set({ messages: [...get().messages, { role: 'assistant', content: cleaned }] });
+                  }
                 }
               }
 
@@ -569,11 +593,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         }
 
+        // Fallback for models that emit tool calls as text markup instead of tool_calls
+        if (allowTools && toolCalls.size === 0) {
+          parseToolMarkup(assistantContent).forEach((c, i) => {
+            toolCalls.set(i, {
+              id: `call_${myRun}_${round}_${i}`,
+              type: 'function',
+              function: { name: c.name, arguments: JSON.stringify(c.args) },
+            });
+          });
+        }
+
+        const finalText = stripSystemReminder(assistantContent);
+
         if (toolCalls.size > 0) {
           const assistantToolMsg: Message = {
             role: 'assistant',
             // Keep text streamed before the tool call so it doesn't vanish from the chat
-            content: assistantContent ? stripSystemReminder(assistantContent) : null,
+            content: finalText || null,
             tool_calls: Array.from(toolCalls.values()),
           };
           currentMessages = [...currentMessages, assistantToolMsg];
@@ -627,10 +664,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set({ messages: currentMessages });
           // Continue to next round
         } else {
-          if (assistantContent) {
-            currentMessages = [...currentMessages, { role: 'assistant', content: stripSystemReminder(assistantContent) }];
+          if (finalText) {
+            currentMessages = [...currentMessages, { role: 'assistant', content: finalText }];
           }
-          set({ messages: currentMessages, isLoading: false });
+          set({
+            messages: currentMessages,
+            isLoading: false,
+            ...(finalText ? {} : { chatError: 'The model returned no answer. Try again or rephrase.' }),
+          });
           persistMessages(currentMessages);
           return;
         }
