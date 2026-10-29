@@ -3,6 +3,7 @@ import { useNoteStore, FileNode } from '../store/noteStore';
 import { toast } from 'sonner';
 import { defaultStyles } from 'react-file-icon';
 import { Button, IconButton } from './ui/Button';
+import GitBar from './git/GitBar';
 import {
   Folder,
   FolderOpen,
@@ -491,6 +492,8 @@ export default function Sidebar({ onCollapse }: { onCollapse: () => void }) {
           </span>
         </div>
       </div>
+
+      <GitBar />
 
       {/* Navigation and Search */}
       <div className="px-4 pt-4 flex flex-col gap-2">

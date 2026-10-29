@@ -24,6 +24,7 @@ import {
 import { Toaster } from 'sonner';
 import ChatPanel from './components/ChatPanel';
 import ChatToggleButton from './components/ui/ChatToggleButton';
+import GitDialogs from './components/git/GitDialogs';
 import { IconButton } from './components/ui/Button';
 
 export default function App() {
@@ -409,6 +410,8 @@ export default function App() {
           <ChatPanel onClose={() => setRightSidebarOpen(false)} />
         </div>
       )}
+
+      <GitDialogs />
 
       {/* New Note Inline Mini Dialog Modal */}
       {newFileNameModal && (

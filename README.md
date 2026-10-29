@@ -13,6 +13,7 @@
 - **Simulated Sandbox** — Fully functional demo mode when filesystem API is unavailable (e.g., inside iframes)
 - **Multi-format Support** — Markdown (`.md`), plaintext (`.txt`, `.json`), PDF viewer, DOC/DOCX viewer
 - **File Tree Sidebar** — Browse, search, create, rename, delete files and folders
+- **Git** — Branch, commit, pull and push from the sidebar when the folder is a repository (see [docs/git-integration.md](docs/git-integration.md))
 - **Auto-save** — Debounced saving to disk or localStorage
 - **Light/Dark Theme** — Toggleable dark mode
 - **100% Offline** — No backend server, no user accounts, no telemetry

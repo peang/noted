@@ -1,6 +1,12 @@
+import { handleGitProxy, GIT_PROXY_PREFIX } from './src/server/gitProxy';
+
 export default {
   async fetch(request: Request, env: { ASSETS: { fetch: (req: Request) => Promise<Response> } }): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname.startsWith(GIT_PROXY_PREFIX)) {
+      return handleGitProxy(request);
+    }
 
     if (url.pathname.startsWith('/api/opencode/')) {
       const path = url.pathname.replace(/^\/api\/opencode\/?/, '');
